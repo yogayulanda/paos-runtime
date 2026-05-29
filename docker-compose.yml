@@ -1,0 +1,22 @@
+services:
+  mnemosyne:
+    container_name: paos-mnemosyne
+    restart: unless-stopped
+    image: alpine
+    command: tail -f /dev/null
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ../personal-context:/workspace/personal-context
+
+  hermes:
+    container_name: paos-hermes
+    restart: unless-stopped
+    image: alpine
+    command: tail -f /dev/null
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ../personal-context:/workspace/personal-context
