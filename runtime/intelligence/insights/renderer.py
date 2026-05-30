@@ -1,4 +1,5 @@
 from collections import Counter
+import re
 
 
 COPY = {
@@ -41,6 +42,7 @@ COPY = {
 }
 
 SECTION_ORDER = ("important", "learning", "tool", "content", "market")
+SENTENCE_BOUNDARY = re.compile(r"(?<!\d)[.!?](?!\d)")
 
 
 def compact_text(value):
@@ -51,10 +53,19 @@ def trim_text(text, max_chars=128):
     normalized = compact_text(text)
     if len(normalized) <= max_chars:
         return normalized
-    shortened = normalized[: max_chars - 1].rstrip(" ,;:")
+    boundary_match = None
+    for match in SENTENCE_BOUNDARY.finditer(normalized[:max_chars]):
+        boundary_match = match
+    if boundary_match:
+        return normalized[: boundary_match.end()].rstrip(" ,;:")
+    forward_boundary = SENTENCE_BOUNDARY.search(normalized[max_chars : max_chars + 120])
+    if forward_boundary:
+        end = max_chars + forward_boundary.start() + 1
+        return normalized[:end].rstrip(" ,;:")
+    shortened = normalized[:max_chars].rstrip(" ,;:")
     if " " in shortened:
-        shortened = shortened.rsplit(" ", 1)[0]
-    return shortened + "…"
+        shortened = shortened.rsplit(" ", 1)[0].rstrip(" ,;:")
+    return ""
 
 
 def split_sentences(text):
@@ -78,6 +89,59 @@ def lower_blob(insight):
     fields = [insight.get("title"), insight.get("reason")]
     fields.extend(source_titles(insight))
     return compact_text(" ".join(str(value or "") for value in fields)).lower()
+
+
+def _normalized_for_similarity(value):
+    text = compact_text(value).lower()
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return compact_text(text)
+
+
+def insight_identity(insight):
+    title = _normalized_for_similarity(insight.get("title"))
+    reason = _normalized_for_similarity(insight.get("reason"))
+    return f"{title}|{reason}"
+
+
+def insight_tokens(insight):
+    token_set = set()
+    for field in (insight.get("title"), insight.get("reason")):
+        for token in _normalized_for_similarity(field).split():
+            if len(token) >= 4:
+                token_set.add(token)
+    return token_set
+
+
+def similar_insight(a, b):
+    if insight_identity(a) == insight_identity(b):
+        return True
+    a_title = _normalized_for_similarity(a.get("title"))
+    b_title = _normalized_for_similarity(b.get("title"))
+    if a_title and b_title and (a_title in b_title or b_title in a_title):
+        return True
+    a_tokens = insight_tokens(a)
+    b_tokens = insight_tokens(b)
+    if not a_tokens or not b_tokens:
+        return False
+    overlap = len(a_tokens & b_tokens)
+    baseline = max(1, min(len(a_tokens), len(b_tokens)))
+    return (overlap / baseline) >= 0.75
+
+
+def similar_text(a, b):
+    a_norm = _normalized_for_similarity(a)
+    b_norm = _normalized_for_similarity(b)
+    if not a_norm or not b_norm:
+        return False
+    if a_norm in b_norm or b_norm in a_norm:
+        return True
+    a_tokens = {token for token in a_norm.split() if len(token) >= 4}
+    b_tokens = {token for token in b_norm.split() if len(token) >= 4}
+    if not a_tokens or not b_tokens:
+        return False
+    overlap = len(a_tokens & b_tokens)
+    baseline = max(1, min(len(a_tokens), len(b_tokens)))
+    return (overlap / baseline) >= 0.75
 
 
 def personalize_phrase(text):
@@ -222,7 +286,8 @@ def social_body(insight, language):
 def normalize_lines(lines, max_lines=6):
     result = []
     for line in lines:
-        value = trim_text(line, 132)
+        value = trim_text(line, 132).rstrip()
+        value = re.sub(r"(\.{3}|…)+$", "", value).rstrip(" ,;:")
         if value and value not in result:
             result.append(value)
         if len(result) >= max_lines:
@@ -290,6 +355,19 @@ def render_feed_item(insight, language):
     lines = [f"• {social_headline(insight, language)}"]
     lines.extend(normalize_lines(social_body(insight, language), max_lines=6))
     return lines
+
+
+def insight_display_signature(insight, language):
+    rendered = render_feed_item(insight, language)
+    if not rendered:
+        return ""
+    headline = compact_text(rendered[0].lstrip("• ").strip()).lower()
+    body = " ".join(compact_text(line).lower() for line in rendered[1:3])
+    return compact_text(f"{headline} {body}")
+
+
+def insight_headline_key(insight, language):
+    return compact_text(social_headline(insight, language)).lower()
 
 
 def post_from_insight(insight, language):
@@ -424,11 +502,14 @@ def x_post_from_insight(insight, language):
     return None
 
 
-def build_ready_posts(language, insights):
+def build_ready_posts(language, insights, blocked_headlines=None):
     threads_post = None
     x_post = None
     seen_first_lines = set()
+    blocked_headlines = blocked_headlines or set()
     for insight in insights:
+        if insight_headline_key(insight, language) in blocked_headlines:
+            continue
         if is_weak_telegram_item(insight):
             continue
         if section_key_for_insight(insight) not in {"important", "learning", "tool", "market", "content"}:
@@ -436,13 +517,23 @@ def build_ready_posts(language, insights):
         if not threads_post:
             post = post_from_insight(insight, language)
             first_line = compact_text(next((line for line in (post or []) if compact_text(line)), ""))
-            if post and first_line and first_line not in seen_first_lines:
+            if (
+                post
+                and first_line
+                and first_line not in seen_first_lines
+                and all(not similar_text(first_line, blocked) for blocked in blocked_headlines)
+            ):
                 seen_first_lines.add(first_line)
                 threads_post = (COPY.get(language, COPY["en"])["threads_label"], post)
         if not x_post:
             post = x_post_from_insight(insight, language)
             first_line = compact_text(next((line for line in (post or []) if compact_text(line)), ""))
-            if post and first_line and first_line not in seen_first_lines:
+            if (
+                post
+                and first_line
+                and first_line not in seen_first_lines
+                and all(not similar_text(first_line, blocked) for blocked in blocked_headlines)
+            ):
                 seen_first_lines.add(first_line)
                 x_post = (COPY.get(language, COPY["en"])["x_label"], post)
         if threads_post and x_post:
@@ -516,19 +607,96 @@ def ranked_insights(insights):
     )
 
 
+def _append_unique_insight(target, candidate, used):
+    for existing in used:
+        if similar_insight(existing, candidate):
+            return False
+    used.append(candidate)
+    target.append(candidate)
+    return True
+
+
+def _append_unique_display(
+    target,
+    candidate,
+    used_insights,
+    used_signatures,
+    used_headlines,
+    language,
+):
+    headline = insight_headline_key(candidate, language)
+    if not headline or headline in used_headlines:
+        return False
+    signature = insight_display_signature(candidate, language)
+    if not signature or signature in used_signatures:
+        return False
+    if not _append_unique_insight(target, candidate, used_insights):
+        return False
+    used_headlines.add(headline)
+    used_signatures.add(signature)
+    return True
+
+
 def render_insight_sections(language, insights):
     copy = COPY.get(language, COPY["en"])
     buckets = {key: [] for key in SECTION_ORDER}
-    editorial_items = [insight for insight in insights if not is_weak_telegram_item(insight)]
-    top_items = ranked_insights(editorial_items)[:3]
-    top_ids = {id(insight) for insight in top_items}
-
+    editorial_items = [item for item in ranked_insights(insights) if not is_weak_telegram_item(item)]
+    used_insights = []
+    used_signatures = set()
+    used_headlines = set()
+    top_items = []
     for insight in editorial_items:
-        if id(insight) in top_ids:
-            continue
-        buckets[section_key_for_insight(insight)].append(insight)
+        if len(top_items) >= 3:
+            break
+        _append_unique_display(
+            top_items,
+            insight,
+            used_insights,
+            used_signatures,
+            used_headlines,
+            language,
+        )
 
-    ready_posts = build_ready_posts(language, top_items + editorial_items)
+    remaining = [item for item in editorial_items if all(not similar_insight(item, used) for used in used_insights)]
+    for section in SECTION_ORDER:
+        if section == "content":
+            continue
+        section_candidates = [item for item in remaining if section_key_for_insight(item) == section]
+        if section == "market":
+            section_candidates = [item for item in section_candidates if is_strong_watch_item(item)]
+        picked = []
+        for candidate in section_candidates:
+            if _append_unique_display(
+                picked,
+                candidate,
+                used_insights,
+                used_signatures,
+                used_headlines,
+                language,
+            ):
+                break
+        buckets[section] = picked
+        if picked:
+            remaining = [item for item in remaining if all(not similar_insight(item, used) for used in used_insights)]
+
+    content_candidates = [item for item in remaining if section_key_for_insight(item) == "content"]
+    buckets["content"] = []
+    for candidate in content_candidates:
+        if _append_unique_display(
+            buckets["content"],
+            candidate,
+            used_insights,
+            used_signatures,
+            used_headlines,
+            language,
+        ):
+            break
+
+    ready_posts = build_ready_posts(
+        language,
+        remaining,
+        blocked_headlines=set(used_headlines),
+    )
     lines = [f"# {copy['title']}", ""]
     rendered_sections = 0
 
@@ -544,31 +712,25 @@ def render_insight_sections(language, insights):
 
     for section in SECTION_ORDER:
         items = buckets[section]
-        if section == "content":
-            if not items and not ready_posts:
-                continue
-        elif not items:
+        if not items and section != "content":
             continue
-
-        if section != "content":
-            items = ranked_insights(items)[:1]
-            if section == "market":
-                items = [item for item in items if is_strong_watch_item(item)]
-                if not items:
-                    continue
 
         if rendered_sections:
             lines.extend(["", copy["separator"], ""])
 
-        lines.extend([f"## {copy['sections'][section]}", ""])
-
         if section == "content":
-            rendered_any = False
-            merged_posts = list(ready_posts)
+            merged_posts = []
             for insight in items:
                 post = post_from_content_insight(insight, language)
                 if post:
                     merged_posts.append((copy["threads_label"], post))
+            merged_posts.extend(ready_posts)
+
+            if not merged_posts:
+                continue
+
+            lines.extend([f"## {copy['sections'][section]}", ""])
+            rendered_any = False
             seen_posts = set()
             seen_labels = set()
             for label, post in merged_posts:
@@ -583,8 +745,9 @@ def render_insight_sections(language, insights):
                 if len(seen_labels) >= 2:
                     break
             if not rendered_any:
-                lines.extend([copy["empty"], ""])
+                continue
         else:
+            lines.extend([f"## {copy['sections'][section]}", ""])
             for insight in items:
                 lines.extend(render_feed_item(insight, language))
                 lines.append("")
@@ -594,7 +757,7 @@ def render_insight_sections(language, insights):
     if not rendered_sections:
         lines.extend([copy["empty"], ""])
 
-    return lines, count_displayed_insights(lines)
+    return lines, len(used_insights)
 
 
 def render_insights(category, date, language, signals, insights):
