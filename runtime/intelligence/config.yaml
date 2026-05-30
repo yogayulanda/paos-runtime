@@ -1,2 +1,20 @@
+intelligence:
+  default_category: ai
+
+  categories:
+    ai:
+      description: "AI tools, coding agents, PAOS, Forge, AI workflow"
+      enabled_sources:
+        - threads
+        - rss
+        - keyword
+
+    career:
+      description: "remote work, job market, personal branding, career growth"
+      enabled_sources:
+        - threads
+        - rss
+        - keyword
+
 insights:
   language: id

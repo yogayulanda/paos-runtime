@@ -10,6 +10,7 @@ if str(INTELLIGENCE_DIR) not in sys.path:
     sys.path.insert(0, str(INTELLIGENCE_DIR))
 
 from signals.builder import build_signal_layer
+from config import resolve_category
 from notify.telegram import send_telegram_message
 
 
@@ -21,7 +22,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Run PAOS signal layer build."
     )
-    parser.add_argument("--category", required=True)
+    parser.add_argument("--category")
     parser.add_argument("--date", default="today")
     parser.add_argument(
         "--mode",
@@ -43,7 +44,14 @@ def write_status(payload):
     )
 
 
-def build_status(started_at, status, result=None, error_message=None):
+def build_status(
+    started_at,
+    status,
+    result=None,
+    error_message=None,
+    category=None,
+    category_source=None,
+):
     finished_at = now_iso()
     duration = max(
         0.0,
@@ -55,6 +63,8 @@ def build_status(started_at, status, result=None, error_message=None):
         "started_at": started_at,
         "finished_at": finished_at,
         "status": status,
+        "category": category,
+        "category_source": category_source,
         "error_message": error_message,
         "candidates_loaded": result.candidates_loaded if result else 0,
         "themes_detected": result.themes_detected if result else [],
@@ -81,17 +91,26 @@ def main():
     started_at = now_iso()
 
     try:
+        resolved_category = resolve_category(args.category)
         result = build_signal_layer(
-            category=args.category,
+            category=resolved_category.value,
             date=args.date,
             mode=args.mode,
         )
-        status = build_status(started_at=started_at, status="success", result=result)
+        status = build_status(
+            started_at=started_at,
+            status="success",
+            result=result,
+            category=resolved_category.value,
+            category_source=resolved_category.source,
+        )
     except Exception as exc:
         status = build_status(
             started_at=started_at,
             status="failed",
             error_message=str(exc),
+            category=args.category,
+            category_source="cli" if args.category else None,
         )
         write_status(status)
         send_telegram_message(failure_message(status))

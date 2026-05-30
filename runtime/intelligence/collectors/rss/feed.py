@@ -6,6 +6,7 @@ from datetime import datetime
 
 import requests
 
+from config import is_source_enabled
 from collectors.rss.models import compact_text
 from collectors.rss.models import get_default_limit
 from collectors.rss.models import iter_feeds
@@ -138,6 +139,8 @@ def normalize_feed_item(feed, entry):
 
 
 def collect_rss_feeds(category=None, timeout_seconds=20):
+    if category and not is_source_enabled(category, "rss"):
+        raise SystemExit(f"Source family `rss` is disabled for category `{category}`.")
     config = load_rss_config()
     items = []
     errors = []

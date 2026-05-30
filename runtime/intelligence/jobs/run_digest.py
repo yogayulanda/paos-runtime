@@ -10,6 +10,7 @@ if str(INTELLIGENCE_DIR) not in sys.path:
     sys.path.insert(0, str(INTELLIGENCE_DIR))
 
 from digest.builder import build_digest
+from config import resolve_category
 from notify.telegram import send_telegram_message
 
 
@@ -19,7 +20,7 @@ RUNS_PATH = ROOT / ".runtime" / "runs" / "digest" / "latest.json"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run PAOS digest renderer.")
-    parser.add_argument("--category", required=True)
+    parser.add_argument("--category")
     parser.add_argument("--date", default="today")
     return parser.parse_args()
 
@@ -36,7 +37,15 @@ def write_status(payload):
     )
 
 
-def build_status(started_at, status, category, date, result=None, error_message=None):
+def build_status(
+    started_at,
+    status,
+    category,
+    date,
+    result=None,
+    error_message=None,
+    category_source=None,
+):
     finished_at = now_iso()
     duration = max(
         0.0,
@@ -46,6 +55,7 @@ def build_status(started_at, status, category, date, result=None, error_message=
     return {
         "job": "digest",
         "category": category,
+        "category_source": category_source,
         "date": result.date if result else date,
         "started_at": started_at,
         "finished_at": finished_at,
@@ -69,23 +79,26 @@ def failure_message(status):
 def main():
     args = parse_args()
     started_at = now_iso()
+    resolved_category = resolve_category(args.category)
 
     try:
-        result = build_digest(category=args.category, date=args.date)
+        result = build_digest(category=resolved_category.value, date=args.date)
         status = build_status(
             started_at=started_at,
             status="success",
-            category=args.category,
+            category=resolved_category.value,
             date=args.date,
             result=result,
+            category_source=resolved_category.source,
         )
     except Exception as exc:
         status = build_status(
             started_at=started_at,
             status="failed",
-            category=args.category,
+            category=resolved_category.value,
             date=args.date,
             error_message=str(exc),
+            category_source=resolved_category.source,
         )
         write_status(status)
         send_telegram_message(failure_message(status))

@@ -3,87 +3,51 @@ mode: public
 
 categories:
   ai:
-    description: "AI, LLM, agents, coding agents, context engineering, AI tooling"
-    keywords:
-      - "context engineering"
-      - "coding agents"
-      - "AI workflow"
-      - "LLM agents"
+    accounts:
+      - username: "claudeai"
+        source_name: "claudeai"
+        enabled: true
+        collection_mode: authenticated
+        reason: "Anthropic updates"
+        limit: 10
 
-  tech:
-    description: "software engineering, backend, architecture, cloud, devtools"
-    keywords:
-      - "backend engineering"
-      - "distributed systems"
-      - "developer tools"
-      - "software architecture"
+      - username: "chatgpt"
+        source_name: "chatgpt"
+        enabled: true
+        collection_mode: authenticated
+        reason: "OpenAI updates"
+        limit: 10
 
-  builders:
-    description: "founders, indie hackers, product builders, startup operators"
-    keywords:
-      - "indie hacking"
-      - "building in public"
-      - "solo founder"
-      - "startup ideas"
+      - username: "chatgptricks"
+        source_name: "chatgptricks"
+        enabled: true
+        collection_mode: authenticated
+        reason: "Prompting and practical AI usage"
+        limit: 10
 
-  stock:
-    description: "investing, public markets, macroeconomics, company analysis"
-    keywords:
-      - "stock market"
-      - "investing"
-      - "macro economy"
-      - "earnings"
+      - username: "boris_cherny"
+        source_name: "boris_cherny"
+        enabled: true
+        collection_mode: authenticated
+        reason: "AI engineering"
+        limit: 10
 
-  remote_jobs:
-    description: "remote work, freelance, contract, startup hiring"
-    keywords:
-      - "remote jobs"
-      - "hiring remote"
-      - "freelance developer"
-      - "contract work"
+      - username: "obrajesse"
+        source_name: "obrajesse"
+        enabled: true
+        collection_mode: authenticated
+        reason: "AI builders and agents"
+        limit: 10
 
-accounts:
-  - username: "claudeai"
-    category: "ai"
-    enabled: true
-    collection_mode: authenticated
-    reason: "Anthropic updates"
-    limit: 10
+      - username: "yogayulanda"
+        source_name: "yogayulanda"
+        enabled: true
+        collection_mode: authenticated
+        reason: "AI engineering and agent workflow signal"
+        limit: 10
 
-  - username: "chatgpt"
-    category: "ai"
-    enabled: true
-    collection_mode: authenticated
-    reason: "OpenAI updates"
-    limit: 10
-
-  - username: "chatgptricks"
-    category: "ai"
-    enabled: true
-    collection_mode: authenticated
-    reason: "Prompting and practical AI usage"
-    limit: 10
-
-  - username: "boris_cherny"
-    category: "ai"
-    enabled: true
-    collection_mode: authenticated
-    reason: "AI engineering"
-    limit: 10
-
-  - username: "obrajesse"
-    category: "ai"
-    enabled: true
-    collection_mode: authenticated
-    reason: "AI builders and agents"
-    limit: 10
-
-  - username: "yogayulanda"
-    category: "ai"
-    enabled: true
-    collection_mode: authenticated
-    reason: "AI engineering and agent workflow signal"
-    limit: 10
+  career:
+    accounts: []
 
 limits:
   default_per_account: 10

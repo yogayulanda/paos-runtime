@@ -19,6 +19,12 @@ venv/
 venvs/
 # PAOS runtime artifacts
 .runtime/
+intelligence/raw/**
+intelligence/candidates/**
+intelligence/signals/**
+intelligence/digests/**
+intelligence/insights/**
+.runtime/runs/**
 debug/
 __pycache__/
 *.pyc

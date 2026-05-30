@@ -1,0 +1,40 @@
+platform: keyword
+mode: discovery
+
+categories:
+  ai:
+    queries:
+      - query: "AI coding agent workflow"
+        reason: "AI coding agent and workflow discovery"
+        enabled: true
+        limit: 10
+
+      - query: "context engineering AI workflow"
+        reason: "Context engineering and repo-native AI workflow discovery"
+        enabled: true
+        limit: 10
+
+      - query: "Claude Code agent workflow"
+        reason: "Claude Code workflow and agent updates"
+        enabled: true
+        limit: 10
+
+      - query: "OpenAI Codex CLI agent"
+        reason: "Codex and AI coding agent updates"
+        enabled: true
+        limit: 10
+
+  career:
+    queries:
+      - query: "remote backend engineer Indonesia AI fintech"
+        reason: "Career opportunity discovery for backend/AI/fintech roles"
+        enabled: true
+        limit: 10
+
+      - query: "senior backend engineer remote fintech"
+        reason: "Senior backend fintech remote job discovery"
+        enabled: true
+        limit: 10
+
+limits:
+  default_per_query: 10

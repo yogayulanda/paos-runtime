@@ -14,6 +14,7 @@ if str(INTELLIGENCE_DIR) not in sys.path:
 from collectors.threads.extractor import THREADS_BROWSER_PROFILE_DIR
 from collectors.threads.extractor import resolve_adapter_with_auth
 from collectors.threads.public_account import collect_account_feed
+from config import resolve_category
 from notify.telegram import send_telegram_message
 from threads_auth import check_session_state
 from threads_auth import session_status_error_code
@@ -91,6 +92,8 @@ def build_status(
     items_collected=0,
     paths=None,
     extraction_mode=None,
+    category=None,
+    category_source=None,
 ):
     finished_at = now_iso()
     duration = max(
@@ -103,6 +106,8 @@ def build_status(
         "started_at": started_at,
         "finished_at": finished_at,
         "status": status,
+        "category": category,
+        "category_source": category_source,
         "error_code": error_code,
         "error_message": error_message,
         "items_collected": items_collected,
@@ -177,6 +182,7 @@ def format_failure_message(status):
 def main():
     args = parse_args()
     started_at = now_iso()
+    resolved_category = resolve_category(args.category)
     locked, lock_data = acquire_lock(started_at)
 
     if not locked:
@@ -189,6 +195,8 @@ def main():
                 f" pid={lock_data.get('pid')}"
             ),
             extraction_mode=args.extraction_mode,
+            category=resolved_category.value,
+            category_source=resolved_category.source,
         )
         write_status(status)
         print(status["error_message"])
@@ -210,6 +218,8 @@ def main():
                     f" session_status={session['session_status']}"
                 ),
                 extraction_mode=args.extraction_mode,
+                category=resolved_category.value,
+                category_source=resolved_category.source,
             )
             write_status(status)
             send_telegram_message(format_failure_message(status))
@@ -226,7 +236,7 @@ def main():
         result = collect_account_feed(
             adapter=adapter,
             limit=args.limit,
-            category=args.category,
+            category=resolved_category.value,
             debug=args.debug,
             authenticated=True,
         )
@@ -245,6 +255,8 @@ def main():
                 items_collected=items_collected,
                 paths=paths,
                 extraction_mode=args.extraction_mode,
+                category=resolved_category.value,
+                category_source=resolved_category.source,
             )
             write_status(status)
             send_telegram_message(format_failure_message(status))
@@ -257,6 +269,8 @@ def main():
             items_collected=items_collected,
             paths=paths,
             extraction_mode=args.extraction_mode,
+            category=resolved_category.value,
+            category_source=resolved_category.source,
         )
         write_status(status)
         print(json.dumps(status, ensure_ascii=True, indent=2))
@@ -267,6 +281,8 @@ def main():
             error_code="BROWSER_TIMEOUT",
             error_message=str(exc),
             extraction_mode=args.extraction_mode,
+            category=resolved_category.value,
+            category_source=resolved_category.source,
         )
         write_status(status)
         send_telegram_message(format_failure_message(status))
@@ -278,6 +294,8 @@ def main():
             error_code="UNKNOWN_ERROR",
             error_message=str(exc),
             extraction_mode=args.extraction_mode,
+            category=resolved_category.value,
+            category_source=resolved_category.source,
         )
         write_status(status)
         send_telegram_message(format_failure_message(status))

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+from config import validate_source_categories
 from collectors.threads.extractor import ROOT
 from collectors.threads.extractor import compact_text
 from collectors.threads.extractor import matched_keywords
@@ -27,14 +28,11 @@ def load_threads_config():
         raise SystemExit("Threads source config must declare `platform: threads`.")
 
     categories = payload.get("categories") or {}
-    accounts = payload.get("accounts") or []
     limits = payload.get("limits") or {}
 
     if not isinstance(categories, dict) or not categories:
         raise SystemExit("Threads source config must include `categories`.")
-
-    if not isinstance(accounts, list):
-        raise SystemExit("Threads source config `accounts` must be a list.")
+    validate_source_categories("threads", list(categories.keys()))
 
     if not isinstance(limits, dict):
         raise SystemExit("Threads source config `limits` must be a mapping.")
@@ -50,27 +48,29 @@ def iter_categories(config, selected_category=None):
 
 
 def iter_accounts(config, selected_category=None):
-    valid_categories = set((config.get("categories") or {}).keys())
+    for category, details in iter_categories(config, selected_category=selected_category):
+        accounts = (details or {}).get("accounts") or []
+        if not isinstance(accounts, list):
+            raise SystemExit(
+                f"Threads source config categories.{category}.accounts must be a list."
+            )
+        for account in accounts:
+            if not isinstance(account, dict):
+                continue
+            if not account.get("enabled", True):
+                continue
 
-    for account in config.get("accounts") or []:
-        if not isinstance(account, dict):
-            continue
+            username = compact_text(account.get("username"))
+            if not username:
+                continue
 
-        if not account.get("enabled", True):
-            continue
-
-        category = account.get("category")
-        if category not in valid_categories:
-            continue
-
-        if selected_category and category != selected_category:
-            continue
-
-        username = compact_text(account.get("username"))
-        if not username:
-            continue
-
-        yield account
+            normalized = dict(account)
+            normalized["username"] = username
+            normalized["source_name"] = compact_text(
+                account.get("source_name") or username
+            )
+            normalized["category"] = category
+            yield normalized
 
 
 def get_default_limit(config, source_type):

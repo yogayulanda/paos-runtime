@@ -3,6 +3,8 @@ import os
 import shutil
 from pathlib import Path
 
+import yaml
+
 from collectors.threads.extractor import ROOT
 from collectors.threads.extractor import THREADS_BROWSER_PROFILE_DIR
 from collectors.threads.extractor import THREADS_HOME_URL
@@ -12,13 +14,17 @@ from collectors.threads.extractor import detect_login_wall
 
 
 DEBUG_DIR = ROOT / "debug" / "threads" / "auth"
-STRONG_IDENTITY_INDICATORS = (
-    "expected_profile_accessible",
-    "expected_profile_visible",
+THREADS_CONFIG_PATH = ROOT / "runtime" / "intelligence" / "sources" / "threads.yaml"
+HOME_IDENTITY_TEXT_MARKERS = (
     "Log out",
     "Switch profiles",
     "Settings",
+    "Pengaturan",
+    "Keluar",
+    "Cambiar de perfil",
+    "Configuracion",
 )
+AUTH_COOKIE_CANDIDATES = {"sessionid", "ds_user_id", "csrftoken", "ig_did"}
 
 
 def parse_args():
@@ -99,9 +105,9 @@ def identity_evidence_from_state(state):
     evidence = []
     visible_text = state.get("visible_text", "")
 
-    for indicator in ("Log out", "Switch profiles", "Settings"):
+    for indicator in HOME_IDENTITY_TEXT_MARKERS:
         if indicator in visible_text:
-            evidence.append(indicator)
+            evidence.append(f"home_text:{indicator}")
 
     return evidence
 
@@ -119,6 +125,7 @@ def profile_identity_evidence(profile_state, expected_username):
 
     if (
         not profile_state["login_wall_detected"]
+        and not profile_state["challenge_detected"]
         and profile_state["current_url"].startswith("https://www.threads.com/@")
         and profile_state["permalink_count"] > 0
     ):
@@ -134,11 +141,59 @@ def profile_identity_evidence(profile_state, expected_username):
     return evidence
 
 
-def evaluate_session(home_state, profile_state=None, expected_username=""):
+def cookie_identity_evidence(cookies):
+    evidence = []
+    by_name = {cookie.get("name"): cookie for cookie in cookies or []}
+
+    for name in sorted(AUTH_COOKIE_CANDIDATES):
+        if name in by_name:
+            evidence.append(f"cookie:{name}")
+
+    return evidence
+
+
+def load_expected_username():
+    from_env = os.getenv("THREADS_EXPECTED_USERNAME", "").strip()
+    if from_env:
+        return from_env, "env"
+
+    if not THREADS_CONFIG_PATH.exists():
+        return "", "none"
+
+    payload = yaml.safe_load(THREADS_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    categories = payload.get("categories") or {}
+    if not isinstance(categories, dict):
+        return "", "none"
+
+    for _category, details in categories.items():
+        accounts = (details or {}).get("accounts") or []
+        if not isinstance(accounts, list):
+            continue
+        for account in accounts:
+            if not isinstance(account, dict):
+                continue
+            if not account.get("enabled", True):
+                continue
+            if str(account.get("collection_mode", "public")).strip() != "authenticated":
+                continue
+            username = str(account.get("username", "")).strip()
+            if username:
+                return username, "config"
+
+    return "", "none"
+
+
+def evaluate_session(
+    home_state,
+    profile_state=None,
+    expected_username="",
+    cookies=None,
+):
     identity_evidence = identity_evidence_from_state(home_state)
     identity_evidence.extend(
         profile_identity_evidence(profile_state, expected_username)
     )
+    identity_evidence.extend(cookie_identity_evidence(cookies))
     identity_evidence = list(dict.fromkeys(identity_evidence))
 
     public_accessible = (
@@ -146,24 +201,38 @@ def evaluate_session(home_state, profile_state=None, expected_username=""):
         and not home_state["challenge_detected"]
     )
 
-    if profile_state and profile_state["challenge_detected"]:
-        session_status = "challenge"
-        authenticated = False
-    elif home_state["challenge_detected"]:
-        session_status = "challenge"
-        authenticated = False
-    elif home_state["login_wall_detected"]:
+    if (
+        home_state["login_wall_detected"]
+        or home_state["challenge_detected"]
+        or (profile_state and (profile_state["login_wall_detected"] or profile_state["challenge_detected"]))
+    ):
         session_status = "login_required"
         authenticated = False
-    elif any(item in identity_evidence for item in STRONG_IDENTITY_INDICATORS):
+        status_reason = "login_wall_or_challenge_detected"
+    elif (
+        "expected_profile_visible" in identity_evidence
+        and "expected_profile_accessible" in identity_evidence
+        and any(item.startswith("cookie:") for item in identity_evidence)
+    ):
         session_status = "authenticated"
         authenticated = True
+        status_reason = "expected_profile_and_auth_cookie_confirmed"
+    elif (
+        "expected_profile_visible" in identity_evidence
+        and "expected_profile_accessible" in identity_evidence
+        and any(item.startswith("home_text:") for item in identity_evidence)
+    ):
+        session_status = "authenticated"
+        authenticated = True
+        status_reason = "expected_profile_and_identity_ui_confirmed"
     elif public_accessible:
         session_status = "public_access_only"
         authenticated = False
+        status_reason = "public_page_accessible_but_missing_auth_indicators"
     else:
-        session_status = "unknown"
+        session_status = "public_access_only"
         authenticated = False
+        status_reason = "missing_auth_indicators"
 
     return {
         "session_status": session_status,
@@ -173,7 +242,8 @@ def evaluate_session(home_state, profile_state=None, expected_username=""):
         "challenge_detected": home_state["challenge_detected"],
         "visible_text_length": home_state["visible_text_length"],
         "permalink_count": home_state["permalink_count"],
-        "identity_evidence": ",".join(identity_evidence) or "none",
+        "identity_indicators": identity_evidence,
+        "reason": status_reason,
     }
 
 
@@ -188,11 +258,13 @@ def check_session_state(headless=True, debug=False):
             "2. python -m playwright install chromium"
         )
 
-    expected_username = os.getenv("THREADS_EXPECTED_USERNAME", "").strip()
+    expected_username, expected_username_source = load_expected_username()
     home_state = {}
     profile_state = None
     home_artifacts = {}
     profile_artifacts = {}
+    cookies = []
+    profile_url_checked = None
 
     with sync_playwright() as playwright:
         context = launch_persistent_context(playwright, headless=headless)
@@ -211,11 +283,15 @@ def check_session_state(headless=True, debug=False):
                     "check-home",
                     home_state,
                 )
+            cookies = context.cookies([THREADS_HOME_URL])
 
             if expected_username:
                 profile_page = context.new_page()
+                profile_url_checked = THREADS_PROFILE_URL.format(
+                    username=expected_username
+                )
                 profile_page.goto(
-                    THREADS_PROFILE_URL.format(username=expected_username),
+                    profile_url_checked,
                     wait_until="domcontentloaded",
                     timeout=30000,
                 )
@@ -235,8 +311,13 @@ def check_session_state(headless=True, debug=False):
         home_state,
         profile_state=profile_state,
         expected_username=expected_username,
+        cookies=cookies,
     )
     result["expected_username"] = expected_username or None
+    result["expected_username_source"] = expected_username_source
+    result["profile_dir"] = str(THREADS_BROWSER_PROFILE_DIR)
+    result["home_url_checked"] = THREADS_HOME_URL
+    result["profile_url_checked"] = profile_url_checked
     result["home_state"] = home_state
     result["profile_state"] = profile_state
     result["home_artifacts"] = home_artifacts
@@ -250,6 +331,13 @@ def print_check_result(result):
 
     print(f"session_status={result['session_status']}")
     print(f"authenticated={str(result['authenticated']).lower()}")
+    print(f"profile_dir={result['profile_dir']}")
+    print(f"expected_username={result.get('expected_username') or 'none'}")
+    print(
+        f"expected_username_source={result.get('expected_username_source') or 'none'}"
+    )
+    print(f"home_url_checked={result['home_url_checked']}")
+    print(f"profile_url_checked={result.get('profile_url_checked') or 'none'}")
     print(f"public_accessible={str(result['public_accessible']).lower()}")
     print(f"login_wall_detected={str(result['login_wall_detected']).lower()}")
     print(f"challenge_detected={str(result['challenge_detected']).lower()}")
@@ -257,7 +345,9 @@ def print_check_result(result):
     print(f"title={home_state['title']}")
     print(f"visible_text_length={home_state['visible_text_length']}")
     print(f"permalink_count={home_state['permalink_count']}")
-    print(f"identity_evidence={result['identity_evidence']}")
+    indicators = result.get("identity_indicators") or []
+    print(f"identity_indicators={','.join(indicators) if indicators else 'none'}")
+    print(f"reason={result.get('reason') or 'none'}")
 
     if result.get("home_artifacts"):
         print(f"home_debug_png={result['home_artifacts']['png']}")
@@ -354,11 +444,9 @@ def session_status_error_code(session_status):
         return None
     if session_status == "login_required":
         return "LOGIN_REQUIRED"
-    if session_status == "challenge":
-        return "CAPTCHA_OR_CHALLENGE"
     if session_status == "public_access_only":
         return "PUBLIC_ACCESS_ONLY"
-    return "UNKNOWN_AUTH_STATE"
+    return "PUBLIC_ACCESS_ONLY"
 
 
 def main():

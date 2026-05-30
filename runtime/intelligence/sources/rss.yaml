@@ -3,29 +3,27 @@ mode: public
 
 categories:
   ai:
-    description: "AI models, tooling, agents, research, and AI engineering"
+    feeds:
+      - name: "openai_news"
+        url: "https://openai.com/news/rss.xml"
+        enabled: true
+        reason: "Official OpenAI product and research updates"
+        limit: 5
 
-feeds:
-  - name: "openai_news"
-    url: "https://openai.com/news/rss.xml"
-    category: "ai"
-    enabled: true
-    reason: "Official OpenAI product and research updates"
-    limit: 5
+      - name: "interconnects"
+        url: "https://www.interconnects.ai/feed"
+        enabled: true
+        reason: "High-signal AI systems, model ecosystems, and open-model analysis"
+        limit: 5
 
-  - name: "interconnects"
-    url: "https://www.interconnects.ai/feed"
-    category: "ai"
-    enabled: true
-    reason: "High-signal AI systems, model ecosystems, and open-model analysis"
-    limit: 5
+      - name: "simon_willison"
+        url: "https://simonwillison.net/atom/everything/"
+        enabled: true
+        reason: "Practical LLM, tooling, and AI product analysis"
+        limit: 5
 
-  - name: "simon_willison"
-    url: "https://simonwillison.net/atom/everything/"
-    category: "ai"
-    enabled: true
-    reason: "Practical LLM, tooling, and AI product analysis"
-    limit: 5
+  career:
+    feeds: []
 
 limits:
   default_per_feed: 5

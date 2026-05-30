@@ -1,12 +1,12 @@
 # PAOS Runtime
 
-PAOS Runtime is the execution layer for personal intelligence workflows in PAOS.
+PAOS Runtime is the execution layer for personal intelligence workflows.
 
-It is intentionally separate from:
-- `personal-context` as the long-term source of truth
+It is separate from:
+- `personal-context` as long-term source of truth
 - Mnemosyne as temporary working memory
 
-## Intelligence Architecture
+## Pipeline
 
 ```text
 Collectors
@@ -18,104 +18,102 @@ Collectors
 -> Telegram Delivery
 ```
 
-## Supported Sources (Current)
+## Category Model
 
-- Threads account collection
-- RSS feed collection
+`category` = top-level intelligence topic.
 
-The pipeline is source-driven:
-- trusted sources are prioritized for signal quality
-- discovery sources can still be included by policy
-- current validated source families are Threads and RSS
+Official categories are defined only in:
+- `runtime/intelligence/config.yaml`
 
-## Candidate Pool
+Current official categories:
+- `ai`
+- `career`
 
-Candidate Pool:
-- loads raw items from source families
-- applies policy-based batching by source type
-- uses noise-only filtering for Threads account items
-- uses feed policy for RSS items
-- runs shared dedupe after policy batching
+Category resolution order:
+1. CLI `--category`
+2. `intelligence.default_category` from `runtime/intelligence/config.yaml`
+3. fallback `ai` (only if `ai` is an allowed category)
 
-## Signal Layer
+Unknown categories fail with an explicit allowed list.
 
-Signal Builder:
-- extracts higher-level signals from candidate items
-- supports AI mode generation
-- preserves explicit source attribution for each signal:
-  - `platform`
-  - `source_type`
-  - `source_name`
-  - `url`
+## Source Config Model
 
-## Digest Layer
+Sources must follow official categories.
 
-Digest Builder:
-- renders markdown digests from signals
-- enforces a freshness guard
-- refuses stale digest rendering when signal artifacts are older than candidate artifacts
-- returns a remediation command when freshness fails
+- `runtime/intelligence/sources/threads.yaml`
+- `runtime/intelligence/sources/rss.yaml`
+- `runtime/intelligence/sources/keyword.yaml`
 
-## Insight Engine
+Source roles:
+- `threads` = trusted account source
+- `rss` = trusted feed source
+- `keyword` = discovery source
 
-Insight Engine:
-- converts signals into actionable insights
-- writes JSONL and Markdown artifacts
-- selects editorial briefing output for Telegram delivery
+Example shape:
 
-Current editorial style:
-- Indonesian output
-- concise personal intelligence briefing
-- top-priority insight selection
-- aha moment generation
-- opinionated observations
-- ready-to-post content blocks
-- weak section suppression
-
-## Telegram Delivery
-
-PAOS can send daily intelligence briefings to Telegram.
-
-Required env vars:
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-
-Credential behavior:
-- reads from process env first
-- falls back to repo `.env` via context loader when available
-- does not print secrets to logs
-
-## Common Commands
-
-```bash
-# Collect RSS
-venv/bin/python runtime/intelligence/jobs/run_rss_collector.py --category ai
-
-# Build candidates
-venv/bin/python runtime/intelligence/jobs/run_candidate_pool.py --category ai
-
-# Build signals
-venv/bin/python runtime/intelligence/jobs/run_signal_builder.py --category ai --mode ai
-
-# Build digest
-venv/bin/python runtime/intelligence/jobs/run_digest.py --category ai
-
-# Build insights and send Telegram
-venv/bin/python runtime/intelligence/jobs/run_insights.py --category ai
+```yaml
+categories:
+  ai:
+    accounts: []
+  career:
+    accounts: []
 ```
 
-## Current Validated State
+```yaml
+categories:
+  ai:
+    feeds: []
+  career:
+    feeds: []
+```
 
-- Threads + RSS mixed-source pipeline validated
-- Candidate Pool source-family loading validated
-- Signal attribution validated
-- Digest freshness guard validated
-- Insight Engine + Telegram delivery validated
-- Editorial Telegram UX validated as usable daily briefing
+```yaml
+categories:
+  ai:
+    queries: []
+  career:
+    queries: []
+```
 
-## Documentation
+Source files cannot introduce unofficial categories.
 
-- `docs/architecture.md`
-- `docs/intelligence-layer.md`
-- `docs/roadmap.md`
-- `intelligence/README.md`
+## Runtime vs Artifacts
+
+- `runtime/intelligence/` = code, config, jobs, collectors, policies, renderers
+- `intelligence/` = generated artifacts only
+
+Current artifact paths keep category in filename:
+- `intelligence/raw/threads/YYYY-MM-DD/account/<category>.jsonl`
+- `intelligence/raw/rss/YYYY-MM-DD/feed/<category>.jsonl`
+- `intelligence/candidates/YYYY-MM-DD/<category>.jsonl`
+- `intelligence/signals/YYYY-MM-DD/<category>.jsonl`
+- `intelligence/digests/YYYY-MM-DD/<category>.md`
+- `intelligence/insights/YYYY-MM-DD/<category>.md`
+
+## Preferred Commands
+
+Use default category:
+
+```bash
+venv/bin/python runtime/intelligence/jobs/run_rss_collector.py
+venv/bin/python runtime/intelligence/jobs/run_candidate_pool.py
+venv/bin/python runtime/intelligence/jobs/run_signal_builder.py --mode ai
+venv/bin/python runtime/intelligence/jobs/run_digest.py
+venv/bin/python runtime/intelligence/jobs/run_insights.py
+```
+
+Override category:
+
+```bash
+venv/bin/python runtime/intelligence/jobs/run_insights.py --category career
+```
+
+## Safety
+
+Do not commit generated artifacts:
+- `intelligence/raw/**`
+- `intelligence/candidates/**`
+- `intelligence/signals/**`
+- `intelligence/digests/**`
+- `intelligence/insights/**`
+- `.runtime/runs/**`

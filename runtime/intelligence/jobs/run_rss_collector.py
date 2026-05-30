@@ -10,6 +10,7 @@ if str(INTELLIGENCE_DIR) not in sys.path:
     sys.path.insert(0, str(INTELLIGENCE_DIR))
 
 from collectors.rss.feed import collect_rss_feeds
+from config import resolve_category
 
 
 ROOT = INTELLIGENCE_DIR.parents[1]
@@ -35,7 +36,14 @@ def write_status(payload):
     )
 
 
-def build_status(started_at, status, result=None, error_message=None):
+def build_status(
+    started_at,
+    status,
+    result=None,
+    error_message=None,
+    category=None,
+    category_source=None,
+):
     finished_at = now_iso()
     duration = max(
         0.0,
@@ -48,6 +56,8 @@ def build_status(started_at, status, result=None, error_message=None):
         "started_at": started_at,
         "finished_at": finished_at,
         "status": status,
+        "category": category,
+        "category_source": category_source,
         "error_message": error_message,
         "feeds_loaded": stats.get("feeds_loaded", 0),
         "items_collected": stats.get("accepted_items", 0),
@@ -60,16 +70,25 @@ def main():
     args = parse_args()
     started_at = now_iso()
     try:
+        resolved_category = resolve_category(args.category)
         result = collect_rss_feeds(
-            category=args.category,
+            category=resolved_category.value,
             timeout_seconds=args.timeout_seconds,
         )
-        status = build_status(started_at=started_at, status="success", result=result)
+        status = build_status(
+            started_at=started_at,
+            status="success",
+            result=result,
+            category=resolved_category.value,
+            category_source=resolved_category.source,
+        )
     except Exception as exc:
         status = build_status(
             started_at=started_at,
             status="failed",
             error_message=str(exc),
+            category=args.category,
+            category_source="cli" if args.category else None,
         )
         write_status(status)
         print(json.dumps(status, ensure_ascii=True, indent=2))

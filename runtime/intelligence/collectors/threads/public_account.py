@@ -7,6 +7,7 @@ from collectors.threads.models import get_default_limit
 from collectors.threads.models import iter_accounts
 from collectors.threads.models import load_threads_config
 from collectors.threads.models import write_items
+from config import is_source_enabled
 
 
 def collect_account_feed(
@@ -16,6 +17,10 @@ def collect_account_feed(
     debug=False,
     authenticated=False,
 ):
+    if category and not is_source_enabled(category, "threads"):
+        raise SystemExit(
+            f"Source family `threads` is disabled for category `{category}`."
+        )
     config = load_threads_config()
     category_keywords = {
         name: (details or {}).get("keywords") or []

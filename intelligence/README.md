@@ -1,58 +1,53 @@
-# PAOS Intelligence
+# PAOS Intelligence Artifacts
 
-PAOS Intelligence stores captured external signals and derived intelligence artifacts.
+`intelligence/` stores generated intelligence outputs only.
 
-This layer is file-based by design.
+## Boundary
 
-It does not scrape, call APIs, use a database, or run background workers.
+- `runtime/intelligence/` contains runtime code/config/jobs.
+- `intelligence/` contains generated artifacts.
 
----
+No executable runtime logic should be added under `intelligence/`.
+
+## Category Convention
+
+The output filename is the category.
+
+Current official categories are defined in `runtime/intelligence/config.yaml`:
+- `ai`
+- `career`
+
+Source families follow these official categories:
+- `threads` = trusted account source
+- `rss` = trusted feed source
+- `keyword` = discovery source
 
 ## Structure
 
 ```text
 intelligence/
 ├── raw/
-│   ├── manual/
-│   └── threads/
-├── digests/
-├── opportunities/
-└── schemas/
+│   ├── threads/YYYY-MM-DD/account/<category>.jsonl
+│   └── rss/YYYY-MM-DD/feed/<category>.jsonl
+├── candidates/YYYY-MM-DD/<category>.jsonl
+├── signals/YYYY-MM-DD/<category>.jsonl
+├── digests/YYYY-MM-DD/<category>.md
+└── insights/YYYY-MM-DD/<category>.{jsonl,md}
 ```
-
----
-
-## Raw Capture
-
-Raw intelligence entries are Markdown files with YAML frontmatter and three body sections:
-
-* Raw Content
-* Why It Matters
-* Possible Use
-
-Use the collector CLI:
-
-```bash
-python runtime/intelligence/collector.py --source manual --text "Signal text"
-```
-
----
 
 ## Threads Auth
 
-PAOS does not store Threads username or password.
-
-Threads login is completed manually in Chromium and the session is saved under:
+Persistent authenticated profile path:
 
 ```text
 .runtime/browser-profiles/threads/
 ```
 
-Use:
+Commands:
 
 ```bash
 venv/bin/python runtime/intelligence/threads_auth.py login
 venv/bin/python runtime/intelligence/threads_auth.py check
 ```
 
-`check` may return `public_access_only` when Threads pages are reachable without a verified logged-in identity.
+`check` verifies session status with expected profile evidence + auth-cookie indicators.
