@@ -17,3 +17,8 @@ node_modules/
 
 venv/
 venvs/
+# PAOS runtime artifacts
+.runtime/
+debug/
+__pycache__/
+*.pyc

@@ -1,0 +1,379 @@
+import argparse
+import os
+import shutil
+from pathlib import Path
+
+from collectors.threads.extractor import ROOT
+from collectors.threads.extractor import THREADS_BROWSER_PROFILE_DIR
+from collectors.threads.extractor import THREADS_HOME_URL
+from collectors.threads.extractor import THREADS_PROFILE_URL
+from collectors.threads.extractor import detect_challenge_page
+from collectors.threads.extractor import detect_login_wall
+
+
+DEBUG_DIR = ROOT / "debug" / "threads" / "auth"
+STRONG_IDENTITY_INDICATORS = (
+    "expected_profile_accessible",
+    "expected_profile_visible",
+    "Log out",
+    "Switch profiles",
+    "Settings",
+)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Manage the persistent authenticated Threads browser profile."
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    login_parser = subparsers.add_parser("login")
+    login_parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Launch the login browser in headless mode.",
+    )
+
+    check_parser = subparsers.add_parser("check")
+    check_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Save auth debug artifacts for the home and expected profile checks.",
+    )
+
+    logout_parser = subparsers.add_parser("logout")
+    logout_parser.add_argument("--yes", action="store_true")
+
+    return parser.parse_args()
+
+
+def launch_persistent_context(playwright, headless):
+    THREADS_BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    return playwright.chromium.launch_persistent_context(
+        str(THREADS_BROWSER_PROFILE_DIR),
+        headless=headless,
+    )
+
+
+def capture_page_state(page):
+    body_text = ""
+    body = page.locator("body")
+    if body.count() > 0:
+        body_text = body.first.inner_text(timeout=2000)
+
+    permalink_count = page.locator("a[href*='/post/']").count()
+    title = page.title()
+    current_url = page.url
+    html = page.content()
+
+    return {
+        "title": title,
+        "current_url": current_url,
+        "visible_text": body_text or "",
+        "visible_text_length": len(body_text or ""),
+        "permalink_count": permalink_count,
+        "login_wall_detected": detect_login_wall(body_text, permalink_count),
+        "challenge_detected": detect_challenge_page(body_text),
+        "html": html or "",
+    }
+
+
+def save_debug_artifacts(page, slug, state):
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    png_path = DEBUG_DIR / f"{slug}.png"
+    html_path = DEBUG_DIR / f"{slug}.html"
+    txt_path = DEBUG_DIR / f"{slug}.txt"
+
+    page.screenshot(path=str(png_path), full_page=True)
+    html_path.write_text(state["html"], encoding="utf-8")
+    txt_path.write_text(state["visible_text"], encoding="utf-8")
+
+    return {
+        "png": str(png_path),
+        "html": str(html_path),
+        "txt": str(txt_path),
+    }
+
+
+def identity_evidence_from_state(state):
+    evidence = []
+    visible_text = state.get("visible_text", "")
+
+    for indicator in ("Log out", "Switch profiles", "Settings"):
+        if indicator in visible_text:
+            evidence.append(indicator)
+
+    return evidence
+
+
+def profile_identity_evidence(profile_state, expected_username):
+    if not profile_state or not expected_username:
+        return []
+
+    evidence = []
+    expected_handle = f"@{expected_username}"
+    visible_text = profile_state.get("visible_text", "")
+    lowered_text = visible_text.lower()
+    lowered_username = expected_username.lower()
+    lowered_title = (profile_state.get("title") or "").lower()
+
+    if (
+        not profile_state["login_wall_detected"]
+        and profile_state["current_url"].startswith("https://www.threads.com/@")
+        and profile_state["permalink_count"] > 0
+    ):
+        evidence.append("expected_profile_accessible")
+
+    if (
+        expected_handle.lower() in lowered_text
+        or lowered_username in lowered_text
+        or lowered_username in lowered_title
+    ):
+        evidence.append("expected_profile_visible")
+
+    return evidence
+
+
+def evaluate_session(home_state, profile_state=None, expected_username=""):
+    identity_evidence = identity_evidence_from_state(home_state)
+    identity_evidence.extend(
+        profile_identity_evidence(profile_state, expected_username)
+    )
+    identity_evidence = list(dict.fromkeys(identity_evidence))
+
+    public_accessible = (
+        not home_state["login_wall_detected"]
+        and not home_state["challenge_detected"]
+    )
+
+    if profile_state and profile_state["challenge_detected"]:
+        session_status = "challenge"
+        authenticated = False
+    elif home_state["challenge_detected"]:
+        session_status = "challenge"
+        authenticated = False
+    elif home_state["login_wall_detected"]:
+        session_status = "login_required"
+        authenticated = False
+    elif any(item in identity_evidence for item in STRONG_IDENTITY_INDICATORS):
+        session_status = "authenticated"
+        authenticated = True
+    elif public_accessible:
+        session_status = "public_access_only"
+        authenticated = False
+    else:
+        session_status = "unknown"
+        authenticated = False
+
+    return {
+        "session_status": session_status,
+        "authenticated": authenticated,
+        "public_accessible": public_accessible,
+        "login_wall_detected": home_state["login_wall_detected"],
+        "challenge_detected": home_state["challenge_detected"],
+        "visible_text_length": home_state["visible_text_length"],
+        "permalink_count": home_state["permalink_count"],
+        "identity_evidence": ",".join(identity_evidence) or "none",
+    }
+
+
+def check_session_state(headless=True, debug=False):
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError:
+        raise SystemExit(
+            "Playwright is not installed.\n"
+            "Install instructions:\n"
+            "1. pip install playwright\n"
+            "2. python -m playwright install chromium"
+        )
+
+    expected_username = os.getenv("THREADS_EXPECTED_USERNAME", "").strip()
+    home_state = {}
+    profile_state = None
+    home_artifacts = {}
+    profile_artifacts = {}
+
+    with sync_playwright() as playwright:
+        context = launch_persistent_context(playwright, headless=headless)
+        try:
+            home_page = context.pages[0] if context.pages else context.new_page()
+            home_page.goto(
+                THREADS_HOME_URL,
+                wait_until="domcontentloaded",
+                timeout=30000,
+            )
+            home_page.wait_for_timeout(3000)
+            home_state = capture_page_state(home_page)
+            if debug:
+                home_artifacts = save_debug_artifacts(
+                    home_page,
+                    "check-home",
+                    home_state,
+                )
+
+            if expected_username:
+                profile_page = context.new_page()
+                profile_page.goto(
+                    THREADS_PROFILE_URL.format(username=expected_username),
+                    wait_until="domcontentloaded",
+                    timeout=30000,
+                )
+                profile_page.wait_for_timeout(3000)
+                profile_state = capture_page_state(profile_page)
+                if debug:
+                    profile_artifacts = save_debug_artifacts(
+                        profile_page,
+                        "check-profile",
+                        profile_state,
+                    )
+                profile_page.close()
+        finally:
+            context.close()
+
+    result = evaluate_session(
+        home_state,
+        profile_state=profile_state,
+        expected_username=expected_username,
+    )
+    result["expected_username"] = expected_username or None
+    result["home_state"] = home_state
+    result["profile_state"] = profile_state
+    result["home_artifacts"] = home_artifacts
+    result["profile_artifacts"] = profile_artifacts
+    return result
+
+
+def print_check_result(result):
+    home_state = result["home_state"]
+    profile_state = result.get("profile_state")
+
+    print(f"session_status={result['session_status']}")
+    print(f"authenticated={str(result['authenticated']).lower()}")
+    print(f"public_accessible={str(result['public_accessible']).lower()}")
+    print(f"login_wall_detected={str(result['login_wall_detected']).lower()}")
+    print(f"challenge_detected={str(result['challenge_detected']).lower()}")
+    print(f"current_url={home_state['current_url']}")
+    print(f"title={home_state['title']}")
+    print(f"visible_text_length={home_state['visible_text_length']}")
+    print(f"permalink_count={home_state['permalink_count']}")
+    print(f"identity_evidence={result['identity_evidence']}")
+
+    if result.get("home_artifacts"):
+        print(f"home_debug_png={result['home_artifacts']['png']}")
+        print(f"home_debug_html={result['home_artifacts']['html']}")
+        print(f"home_debug_txt={result['home_artifacts']['txt']}")
+
+    if profile_state:
+        print(f"profile_url={profile_state['current_url']}")
+        print(f"profile_title={profile_state['title']}")
+        print(
+            f"profile_visible_text_length={profile_state['visible_text_length']}"
+        )
+        print(f"profile_permalink_count={profile_state['permalink_count']}")
+        print(
+            f"expected_profile_accessible={str(not profile_state['login_wall_detected']).lower()}"
+        )
+
+    if result.get("profile_artifacts"):
+        print(f"profile_debug_png={result['profile_artifacts']['png']}")
+        print(f"profile_debug_html={result['profile_artifacts']['html']}")
+        print(f"profile_debug_txt={result['profile_artifacts']['txt']}")
+
+
+def save_login_after_enter_artifacts(page):
+    state = capture_page_state(page)
+    artifacts = save_debug_artifacts(page, "login-after-enter", state)
+    return state, artifacts
+
+
+def login(headless=False):
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError:
+        raise SystemExit(
+            "Playwright is not installed.\n"
+            "Install instructions:\n"
+            "1. pip install playwright\n"
+            "2. python -m playwright install chromium"
+        )
+
+    with sync_playwright() as playwright:
+        context = launch_persistent_context(playwright, headless=headless)
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto(
+            THREADS_HOME_URL,
+            wait_until="domcontentloaded",
+            timeout=30000,
+        )
+        print("Login manually in the opened browser. Complete 2FA/captcha if requested.")
+        print(
+            "After you can see your logged-in Threads account, return here and press Enter."
+        )
+        input()
+        state, artifacts = save_login_after_enter_artifacts(page)
+        print(f"current_url={state['current_url']}")
+        print(f"title={state['title']}")
+        print(f"visible_text_length={state['visible_text_length']}")
+        print(f"login_debug_png={artifacts['png']}")
+        print(f"login_debug_html={artifacts['html']}")
+        print(f"login_debug_txt={artifacts['txt']}")
+        context.close()
+
+    print(f"profile_saved={THREADS_BROWSER_PROFILE_DIR}")
+    result = check_session_state(headless=True, debug=True)
+    print_check_result(result)
+    if result["session_status"] != "authenticated":
+        print("warning=login_not_verified")
+
+
+def check(debug=False):
+    result = check_session_state(headless=True, debug=debug)
+    print_check_result(result)
+
+
+def logout(yes=False):
+    if not THREADS_BROWSER_PROFILE_DIR.exists():
+        print(f"profile_missing={THREADS_BROWSER_PROFILE_DIR}")
+        return
+
+    if not yes:
+        answer = input(
+            f"Delete Threads browser profile at {THREADS_BROWSER_PROFILE_DIR}? [y/N] "
+        ).strip().lower()
+        if answer not in {"y", "yes"}:
+            print("logout_cancelled=true")
+            return
+
+    shutil.rmtree(THREADS_BROWSER_PROFILE_DIR)
+    print(f"profile_deleted={THREADS_BROWSER_PROFILE_DIR}")
+
+
+def session_status_error_code(session_status):
+    if session_status == "authenticated":
+        return None
+    if session_status == "login_required":
+        return "LOGIN_REQUIRED"
+    if session_status == "challenge":
+        return "CAPTCHA_OR_CHALLENGE"
+    if session_status == "public_access_only":
+        return "PUBLIC_ACCESS_ONLY"
+    return "UNKNOWN_AUTH_STATE"
+
+
+def main():
+    args = parse_args()
+
+    if args.command == "login":
+        login(headless=args.headless)
+        return
+
+    if args.command == "check":
+        check(debug=args.debug)
+        return
+
+    logout(yes=args.yes)
+
+
+if __name__ == "__main__":
+    main()

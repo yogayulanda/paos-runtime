@@ -1,0 +1,1 @@
+"""RSS intelligence collector."""

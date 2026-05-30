@@ -35,3 +35,24 @@ Use the collector CLI:
 ```bash
 python runtime/intelligence/collector.py --source manual --text "Signal text"
 ```
+
+---
+
+## Threads Auth
+
+PAOS does not store Threads username or password.
+
+Threads login is completed manually in Chromium and the session is saved under:
+
+```text
+.runtime/browser-profiles/threads/
+```
+
+Use:
+
+```bash
+venv/bin/python runtime/intelligence/threads_auth.py login
+venv/bin/python runtime/intelligence/threads_auth.py check
+```
+
+`check` may return `public_access_only` when Threads pages are reachable without a verified logged-in identity.

@@ -1,108 +1,121 @@
 # PAOS Runtime
 
-PAOS Runtime is the execution layer for PAOS (Personal AI Operating System).
+PAOS Runtime is the execution layer for personal intelligence workflows in PAOS.
 
-PAOS Runtime provides:
+It is intentionally separate from:
+- `personal-context` as the long-term source of truth
+- Mnemosyne as temporary working memory
 
-* Telegram bot interface
-* Digest workers
-* Collectors
-* Context loading
-* Memory integration
-* Automation workflows
-
-PAOS Runtime is not the source of truth for user knowledge.
-
-User knowledge lives in a separate Personal Context repository.
-
----
-
-## Architecture
+## Intelligence Architecture
 
 ```text
-PAOS Runtime
-      ↓
-PAOS_CONTEXT_PATH
-      ↓
-Personal Context
+Collectors
+-> Raw Intelligence Storage
+-> Candidate Pool
+-> Signal Builder
+-> Digest
+-> Insight Engine
+-> Telegram Delivery
 ```
 
-Runtime contains logic.
+## Supported Sources (Current)
 
-Personal Context contains knowledge.
+- Threads account collection
+- RSS feed collection
 
----
+The pipeline is source-driven:
+- trusted sources are prioritized for signal quality
+- discovery sources can still be included by policy
+- current validated source families are Threads and RSS
 
-## Features
+## Candidate Pool
 
-Current:
+Candidate Pool:
+- loads raw items from source families
+- applies policy-based batching by source type
+- uses noise-only filtering for Threads account items
+- uses feed policy for RSS items
+- runs shared dedupe after policy batching
 
-* /profile
-* /digest
-* /ops
-* /help
+## Signal Layer
 
-Future:
+Signal Builder:
+- extracts higher-level signals from candidate items
+- supports AI mode generation
+- preserves explicit source attribution for each signal:
+  - `platform`
+  - `source_type`
+  - `source_name`
+  - `url`
 
-* Threads Collector
-* Intelligence Digest
-* Mnemosyne Integration
-* Natural Language Routing
+## Digest Layer
 
----
+Digest Builder:
+- renders markdown digests from signals
+- enforces a freshness guard
+- refuses stale digest rendering when signal artifacts are older than candidate artifacts
+- returns a remediation command when freshness fails
 
-## Quick Start
+## Insight Engine
 
-Clone repository:
+Insight Engine:
+- converts signals into actionable insights
+- writes JSONL and Markdown artifacts
+- selects editorial briefing output for Telegram delivery
+
+Current editorial style:
+- Indonesian output
+- concise personal intelligence briefing
+- top-priority insight selection
+- aha moment generation
+- opinionated observations
+- ready-to-post content blocks
+- weak section suppression
+
+## Telegram Delivery
+
+PAOS can send daily intelligence briefings to Telegram.
+
+Required env vars:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+Credential behavior:
+- reads from process env first
+- falls back to repo `.env` via context loader when available
+- does not print secrets to logs
+
+## Common Commands
 
 ```bash
-git clone <repo>
-cd paos-runtime
+# Collect RSS
+venv/bin/python runtime/intelligence/jobs/run_rss_collector.py --category ai
+
+# Build candidates
+venv/bin/python runtime/intelligence/jobs/run_candidate_pool.py --category ai
+
+# Build signals
+venv/bin/python runtime/intelligence/jobs/run_signal_builder.py --category ai --mode ai
+
+# Build digest
+venv/bin/python runtime/intelligence/jobs/run_digest.py --category ai
+
+# Build insights and send Telegram
+venv/bin/python runtime/intelligence/jobs/run_insights.py --category ai
 ```
 
-Install:
+## Current Validated State
 
-```bash
-./install.sh
-```
-
-Verify:
-
-```bash
-./doctor.sh
-```
-
-Run:
-
-```bash
-venv/bin/python bot/telegram-bot.py
-```
-
----
-
-## Repository Structure
-
-```text
-paos-runtime/
-├── bot/
-├── collectors/
-├── context/
-├── memory/
-├── services/
-├── workers/
-├── scripts/
-├── docs/
-├── spec/
-├── install.sh
-├── doctor.sh
-├── requirements.txt
-└── README.md
-```
-
----
+- Threads + RSS mixed-source pipeline validated
+- Candidate Pool source-family loading validated
+- Signal attribution validated
+- Digest freshness guard validated
+- Insight Engine + Telegram delivery validated
+- Editorial Telegram UX validated as usable daily briefing
 
 ## Documentation
 
-* spec/runtime-spec.md
-* docs/architecture.md
-* docs/roadmap.md
+- `docs/architecture.md`
+- `docs/intelligence-layer.md`
+- `docs/roadmap.md`
+- `intelligence/README.md`
