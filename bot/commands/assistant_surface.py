@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,18 @@ MAX_TELEGRAM = 3900
 
 def _compact(value):
     return " ".join(str(value or "").split())
+
+
+GENERIC_BRIEF_PATTERNS = (
+    "use latest digest as execution anchor",
+    "translate latest insight into a small, testable change",
+    "execute today focus",
+    "apply one concrete task",
+    "prioritize incremental delivery",
+)
+
+TITLE_PREFIX_RE = re.compile(r"^(build|learn|review|content)\s*:\s*", re.IGNORECASE)
+PUNCT_RE = re.compile(r"[^a-z0-9\s]")
 
 
 def _runtime_path():
@@ -46,9 +59,138 @@ def _read_json(path_value):
         return None
 
 
+def _is_generic_text(text):
+    normalized = _compact(text).lower()
+    if not normalized:
+        return True
+    return any(pattern in normalized for pattern in GENERIC_BRIEF_PATTERNS)
+
+
+def _normalize_opportunity_text(text):
+    cleaned = TITLE_PREFIX_RE.sub("", _compact(text).lower())
+    cleaned = PUNCT_RE.sub(" ", cleaned)
+    return " ".join(cleaned.split())
+
+
+def _opportunity_specificity(item):
+    title = _compact(item.get("title"))
+    next_action = _compact(item.get("next_action"))
+    title_score = len(title)
+    action_score = len(next_action)
+    bonus = 0
+    if ":" in next_action or ";" in next_action:
+        bonus += 15
+    if not _is_generic_text(title):
+        bonus += 20
+    if not _is_generic_text(next_action):
+        bonus += 20
+    return title_score + action_score + bonus
+
+
+def _dedupe_opportunities(items):
+    deduped = []
+    seen = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = _compact(item.get("title"))
+        next_action = _compact(item.get("next_action"))
+        key = (
+            _normalize_priority(item.get("priority")),
+            _compact(item.get("type")).lower(),
+            _normalize_opportunity_text(title),
+            _normalize_opportunity_text(next_action),
+        )
+        if key in seen:
+            current = deduped[seen[key]]
+            if _opportunity_specificity(item) > _opportunity_specificity(current):
+                deduped[seen[key]] = item
+            continue
+        seen[key] = len(deduped)
+        deduped.append(item)
+
+    grouped = {"high": [], "medium": [], "low": []}
+    for item in deduped:
+        grouped[_normalize_priority(item.get("priority"))].append(item)
+
+    reduced = []
+    for priority in ("high", "medium", "low"):
+        bucket = sorted(grouped[priority], key=_opportunity_specificity, reverse=True)
+        strong_by_type = {}
+        for item in bucket:
+            type_name = _compact(item.get("type")).lower()
+            if not type_name:
+                type_name = "unknown"
+            if type_name in strong_by_type:
+                continue
+            if _is_generic_text(item.get("title")) and _is_generic_text(item.get("next_action")):
+                continue
+            strong_by_type[type_name] = item
+        kept_bucket = []
+        for item in bucket:
+            candidate_title = _normalize_opportunity_text(item.get("title"))
+            candidate_action = _normalize_opportunity_text(item.get("next_action"))
+            candidate_type = _compact(item.get("type")).lower() or "unknown"
+            is_close_duplicate = False
+            for kept in kept_bucket:
+                kept_title = _normalize_opportunity_text(kept.get("title"))
+                kept_action = _normalize_opportunity_text(kept.get("next_action"))
+                if (
+                    candidate_title == kept_title
+                    or candidate_action == kept_action
+                    or (candidate_title and candidate_title in kept_title)
+                    or (kept_title and kept_title in candidate_title)
+                ):
+                    is_close_duplicate = True
+                    break
+            if is_close_duplicate and _is_generic_text(item.get("title")):
+                continue
+            if is_close_duplicate and _is_generic_text(item.get("next_action")):
+                continue
+            strong = strong_by_type.get(candidate_type)
+            if (
+                strong is not None
+                and strong is not item
+                and _is_generic_text(item.get("title"))
+                and _is_generic_text(item.get("next_action"))
+            ):
+                continue
+            kept_bucket.append(item)
+        reduced.extend(kept_bucket)
+    return reduced
+
+
 def _render_brief_message(payload):
-    focus = _compact(payload.get("focus_today")) or "Belum ada fokus hari ini."
-    next_action = _compact(payload.get("suggested_next_action")) or "Belum ada suggested next action."
+    focus = _compact(payload.get("focus_today"))
+    next_action = _compact(payload.get("suggested_next_action"))
+    opportunities = payload.get("opportunities") if isinstance(payload.get("opportunities"), dict) else {}
+
+    focus_lines = []
+    if focus and not _is_generic_text(focus):
+        focus_lines.append(focus)
+
+    for candidate in (opportunities.get("build") or []) + (opportunities.get("review") or []):
+        if len(focus_lines) >= 2:
+            break
+        candidate_text = _compact(candidate)
+        if not candidate_text:
+            continue
+        if candidate_text in focus_lines:
+            continue
+        focus_lines.append(candidate_text)
+
+    if not focus_lines:
+        fallback_focus = focus or "Belum ada fokus hari ini."
+        focus_lines = [fallback_focus]
+
+    if (not next_action) or _is_generic_text(next_action):
+        for candidate in opportunities.get("build") or []:
+            candidate_text = _compact(candidate)
+            if candidate_text:
+                next_action = candidate_text
+                break
+    if not next_action:
+        next_action = "Belum ada suggested next action."
 
     risks = payload.get("risks_or_checks")
     risk_lines = []
@@ -71,7 +213,7 @@ def _render_brief_message(payload):
         "🧭 PAOS Brief",
         "",
         "Fokus Hari Ini",
-        focus,
+        *[f"{idx}. {line}" for idx, line in enumerate(focus_lines, start=1)],
         "",
         "Suggested Next Action",
         next_action,
@@ -108,6 +250,8 @@ def _render_opportunities_message(payload):
     opportunities = payload.get("opportunities")
     if not isinstance(opportunities, list):
         opportunities = []
+    original_count = len(opportunities)
+    opportunities = _dedupe_opportunities(opportunities)
 
     grouped = {"high": [], "medium": [], "low": []}
     for item in opportunities:
@@ -126,7 +270,7 @@ def _render_opportunities_message(payload):
         type_counts[opp_type] = type_counts.get(opp_type, 0) + 1
 
     lines = ["🎯 PAOS Opportunities"]
-    lines.append(f"Menampilkan {len(limited)} dari {len(opportunities)} peluang terbaru.")
+    lines.append(f"Menampilkan {len(limited)} dari {original_count} peluang terbaru.")
 
     index = 1
     for label, key in (("High", "high"), ("Medium", "medium"), ("Low", "low")):
