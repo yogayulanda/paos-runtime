@@ -61,8 +61,13 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- paos_action_event_list\n"
         "- paos_action_resolve\n"
         "- paos_action_state_transition\n"
-        "For source/intelligence status questions, prefer:\n"
+        "For source/intelligence questions, prefer:\n"
         "- paos_source_status_get\n"
+        "- paos_source_digest_get\n"
+        "- paos_source_insight_get\n"
+        "- paos_source_candidates_get\n"
+        "- paos_source_recommendation_get\n"
+        "- paos_source_action_draft_create\n"
         "Primitive read tools remain available:\n"
         "- paos_health\n"
         "- paos_context_get\n"
@@ -74,7 +79,7 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Completed: provider activation, Telegram Hermes-first orchestration,\n"
         "  prompt/policy tuning, Phase 3 read surfaces, Phase 4 draft boundary,\n"
         "  and Phase 5 persistent action loop.\n"
-        "- Current status: Phase 5B UX cleanup for natural-language-first operation.\n"
+        "- Current status: Phase 6 source intelligence expansion for better external signals.\n"
         "- Main UX is conversational (e.g., 'pilih nomor 1', 'accept yang tadi').\n"
         "- Do not force slash commands for primary flow.\n"
         "- Do not recommend command-heavy flows as primary UX.\n"
@@ -88,6 +93,8 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Do not call paos_memory_write.\n"
         "- Do not apply controlled writes.\n"
         "- Do not mutate scheduler, GitHub, or repository state.\n"
+        "- Do not call paos_memory_write.\n"
+        "- Do not enable/start Hermes gateway.\n"
         "- Mutation-like requests must be converted into draft output with clear no-apply notice.\n"
         "- Approval-required requests must include approval payload only, no execution path.\n"
         "- Blocked requests must refuse safely and must not include executable commands.\n"
@@ -145,8 +152,22 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
     if has_any("buat action hari ini", "daily action"):
         picks.append(("paos_daily_action_generate", {"category": "runtime", "persist": True}))
 
-    if has_any("source status", "status source", "intelligence status"):
+    if has_any(
+        "source status",
+        "status source",
+        "intelligence status",
+        "source intelligence sehat",
+        "source intelligence saya sehat",
+    ):
         picks.append(("paos_source_status_get", {}))
+    if has_any("insight ai yang penting", "insight hari ini", "insight dari github", "insight dari threads"):
+        picks.append(("paos_source_insight_get", {"category": "ai", "limit": 5}))
+    if has_any("sinyal bagus", "candidate source", "candidate terbaru"):
+        picks.append(("paos_source_candidates_get", {"category": "ai", "limit": 5}))
+    if has_any("source paling berguna", "rekomendasi source", "keyword yang perlu saya ubah"):
+        picks.append(("paos_source_recommendation_get", {"category": "ai"}))
+    if has_any("buat action dari insight terbaru", "jadikan insight terbaru sebagai proposed action"):
+        picks.append(("paos_source_action_draft_create", {"category": "ai"}))
 
     # "next apa" type benefits from status + dashboard grounding.
     if has_any("next buat paos", "next apa", "selanjutnya apa"):
@@ -177,6 +198,11 @@ def _prefetch_read_evidence(text: str) -> dict | None:
         "paos_daily_get": getattr(mcp_server, "tool_paos_daily_get", None),
         "paos_handoff_get": getattr(mcp_server, "tool_paos_handoff_get", None),
         "paos_source_status_get": getattr(mcp_server, "tool_paos_source_status_get", None),
+        "paos_source_digest_get": getattr(mcp_server, "tool_paos_source_digest_get", None),
+        "paos_source_insight_get": getattr(mcp_server, "tool_paos_source_insight_get", None),
+        "paos_source_candidates_get": getattr(mcp_server, "tool_paos_source_candidates_get", None),
+        "paos_source_recommendation_get": getattr(mcp_server, "tool_paos_source_recommendation_get", None),
+        "paos_source_action_draft_create": getattr(mcp_server, "tool_paos_source_action_draft_create", None),
         "paos_action_policy_get": getattr(mcp_server, "tool_paos_action_policy_get", None),
         "paos_action_draft_create": getattr(mcp_server, "tool_paos_action_draft_create", None),
         "paos_action_list": getattr(mcp_server, "tool_paos_action_list", None),

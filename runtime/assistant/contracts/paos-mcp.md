@@ -183,6 +183,24 @@ Invariants:
 - local action-loop writes only (`assistant/action-loop/*`)
 - every state-changing flow remains no-apply/no-external-write
 
+## Phase 6 Source Intelligence Tools
+
+Read-only:
+- `paos_source_status_get()`
+- `paos_source_digest_get(category?, limit?)`
+- `paos_source_insight_get(category?, limit?)`
+- `paos_source_candidates_get(category?, source?, limit?)`
+- `paos_source_recommendation_get(category?)`
+
+Draft/local-only:
+- `paos_source_action_draft_create(reference?, category?)`
+
+Invariants:
+- source tools are evidence/provenance surfaces only
+- no GitHub/source mutation from MCP
+- action draft from insight persists local proposed action only
+- every state-changing response includes `No external action was applied.`
+
 ## Tool Classification Matrix
 
 `read_only`
@@ -197,6 +215,10 @@ Invariants:
 - `paos_handoff_get`: handoff rendering read.
 - `paos_runtime_status_get`: runtime status read.
 - `paos_source_status_get`: source pipeline status read.
+- `paos_source_digest_get`: digest artifact read.
+- `paos_source_insight_get`: insight artifact read.
+- `paos_source_candidates_get`: candidate pool read.
+- `paos_source_recommendation_get`: source tuning recommendation read.
 - `paos_action_policy_get`: policy read.
 - `paos_action_list`: local action-loop read.
 - `paos_action_get`: local action detail read.
@@ -205,6 +227,7 @@ Invariants:
 
 `draft_only`
 - `paos_action_draft_create`: produces draft/payload only, no execution/apply path.
+- `paos_source_action_draft_create`: creates local proposed action from latest insight only.
 
 `local_state_write`
 - `paos_daily_action_generate`: creates local proposed action record only.

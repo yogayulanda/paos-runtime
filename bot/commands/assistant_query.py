@@ -23,6 +23,12 @@ from assistant.action_loop import (  # type: ignore
     render_conversational_next_steps,
     resolve_action_reference,
 )
+from assistant.source_intelligence import (  # type: ignore
+    create_action_from_latest_insight,
+    get_source_insights,
+    get_source_recommendation,
+    get_source_status,
+)
 from bot.commands.assistant_surface import (
     _build_handoff_message,
     _build_memory_surface_message,
@@ -234,6 +240,58 @@ async def _handle_action_loop(update, text: str) -> bool:
     return False
 
 
+async def _handle_source_intelligence(update, text: str) -> bool:
+    lowered = _normalize_text(text)
+    if any(k in lowered for k in ("source intelligence saya sehat", "source intelligence sehat", "status source", "source status")):
+        _trace_route("source-intel", text, "phase6_source_status")
+        payload = get_source_status(category="ai").payload
+        await update.message.reply_text(
+            (
+                f"{payload.get('summary')}\n"
+                f"Rekomendasi: {payload.get('recommended_next_maintenance_action')}\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return True
+    if any(k in lowered for k in ("insight ai yang penting", "insight hari ini", "insight dari github", "insight dari threads")):
+        _trace_route("source-intel", text, "phase6_source_insight")
+        payload = get_source_insights(category="ai", limit=3)
+        items = payload.get("items") or []
+        if not items:
+            await update.message.reply_text("Belum ada insight terbaru. Coba jalankan pipeline intelligence dulu.")
+            return True
+        lines = []
+        for i, item in enumerate(items[:3], start=1):
+            lines.append(f"{i}. {item.get('title', '-')}")
+            lines.append(f"   alasan: {str(item.get('reason') or '-')[:180]}")
+            lines.append(f"   source: {item.get('source_ref') or item.get('source_refs') or '-'}")
+        await update.message.reply_text(("\n".join(lines))[:3900])
+        return True
+    if any(k in lowered for k in ("source paling berguna", "rekomendasi source", "keyword yang perlu saya ubah")):
+        _trace_route("source-intel", text, "phase6_source_recommendation")
+        payload = get_source_recommendation(category="ai")
+        msg = "Rekomendasi source/keyword:\n" + "\n".join(f"- {x}" for x in (payload.get("items") or [])[:5])
+        await update.message.reply_text(msg[:3900])
+        return True
+    if any(k in lowered for k in ("buat action dari insight terbaru", "source intelligence terbaru", "jadikan insight terbaru sebagai proposed action")):
+        _trace_route("source-intel", text, "phase6_source_action_from_insight")
+        payload = create_action_from_latest_insight(category="ai")
+        if not payload.get("ok"):
+            await update.message.reply_text("Gagal membuat proposed action dari insight terbaru.")
+            return True
+        action = (payload.get("action") or {})
+        await update.message.reply_text(
+            (
+                "Proposed action dibuat dari insight terbaru.\n"
+                f"- title: {action.get('title')}\n"
+                f"- state: {action.get('state')}\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return True
+    return False
+
+
 async def handle_free_text_query(update, context):
     text = str(update.message.text or "").strip()
     if _is_forbidden_gateway_request(text):
@@ -247,6 +305,8 @@ async def handle_free_text_query(update, context):
         _trace_route("free-text", text, "phase5_action_loop:intent_match")
         if await _handle_action_loop(update, text):
             return
+    if await _handle_source_intelligence(update, text):
+        return
     if hermes_orchestration_enabled():
         _trace_route("free-text", text, "hermes_orchestration")
         hermes_result = query_hermes(text, timeout_seconds=hermes_timeout_seconds())

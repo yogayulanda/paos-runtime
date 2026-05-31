@@ -50,6 +50,12 @@ Response policy for free-text:
   - `paos_action_draft_create`
 - For source/intelligence status questions, prefer:
   - `paos_source_status_get`
+- For source intelligence expansion questions, prefer:
+  - `paos_source_digest_get`
+  - `paos_source_insight_get`
+  - `paos_source_candidates_get`
+  - `paos_source_recommendation_get`
+  - `paos_source_action_draft_create`
 - Primitive read tools (fallback/composition):
   - `paos_health`
   - `paos_context_get`
@@ -67,7 +73,7 @@ Response policy for free-text:
 
 Known roadmap anchor:
 - Completed: provider activation, Telegram Hermes-first orchestration, prompt/policy tuning, Phase 3 MCP read surfaces, Phase 4 draft boundary, and Phase 5 persistent action loop.
-- Current status: Phase 5B UX cleanup and external-agent usability hardening.
+- Current status: Phase 6 source intelligence expansion.
 - Primary UX: natural-language Telegram orchestration, not command memorization.
 - Hermes may use local action-loop MCP tools for create/list/resolve/state-transition.
 - Accepted action means approved direction/focus only, not executed/applied.
@@ -86,6 +92,7 @@ Phase 5 boundaries:
 - No `paos_memory_write`.
 - No controlled write apply.
 - No scheduler/GitHub/repo mutation.
+- No memory write (`paos_memory_write`) in free-text flow.
 - No public API/tunnel/gateway enable.
 - Local action-loop persistence only.
 

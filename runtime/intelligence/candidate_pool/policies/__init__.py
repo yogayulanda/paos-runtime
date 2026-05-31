@@ -4,10 +4,12 @@ from candidate_pool.policies.keyword import KeywordPolicy
 from candidate_pool.policies.linkedin import LinkedInPolicy
 from candidate_pool.policies.rss import RSSPolicy
 from candidate_pool.policies.threads_account import ThreadsAccountPolicy
+from candidate_pool.policies.threads_keyword import ThreadsKeywordPolicy
 
 
 POLICY_REGISTRY = {
     ("threads", "account"): ThreadsAccountPolicy(),
+    ("threads", "keyword"): ThreadsKeywordPolicy(),
     ("github", "github"): GitHubPolicy(),
     ("linkedin", "linkedin"): LinkedInPolicy(),
     ("rss", "feed"): RSSPolicy(),
@@ -24,7 +26,7 @@ def resolve_policy(item):
         return GitHubPolicy()
 
     if platform == "threads" and source_type == "keyword":
-        return KeywordPolicy()
+        return ThreadsKeywordPolicy()
 
     if platform == "rss" and source_type == "feed":
         return RSSPolicy()

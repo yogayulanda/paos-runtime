@@ -14,6 +14,14 @@ from assistant.brief import resolve_latest_assistant_brief
 from assistant.opportunities import resolve_latest_assistant_opportunities
 from assistant.memory import MemoryQuery, MemoryWrite, load_memory_provider
 from assistant.actions import create_action_draft, get_action_policy
+from assistant.source_intelligence import (
+    create_action_from_latest_insight,
+    get_source_candidates,
+    get_source_digest,
+    get_source_insights,
+    get_source_recommendation,
+    get_source_status,
+)
 from assistant.action_loop import (
     accept_action,
     create_daily_action,
@@ -830,49 +838,73 @@ def tool_paos_runtime_status_get() -> dict[str, Any]:
 
 
 def tool_paos_source_status_get() -> dict[str, Any]:
-    warnings: list[str] = []
-    errors: list[str] = []
     try:
-        runtime_dir = _runtime_dir()
-        statuses = _runtime_statuses(runtime_dir)
-        artifacts = _artifacts_meta(runtime_dir)
-        source_jobs = [
-            item
-            for item in statuses
-            if str(item.get("job") or "").lower() in {"assistant-brief", "assistant-opportunities", "assistant-context"}
-        ]
-        if not source_jobs:
-            warnings.append("no source pipeline statuses found in .runtime/runs")
-        summary = (
-            f"Source status: jobs={len(source_jobs)}, "
-            f"digest={'yes' if artifacts['digest']['exists'] else 'no'}, "
-            f"insight={'yes' if artifacts['insight']['exists'] else 'no'}."
-        )
-        return {
-            "ok": True,
-            "generated_at": _now_iso(),
-            "source": "paos.mcp.source-status",
-            "status": "ready" if source_jobs else "minimal",
-            "summary": summary,
-            "items": source_jobs[:10],
-            "freshness": {
-                "digest_date": artifacts["digest"]["date"],
-                "insight_date": artifacts["insight"]["date"],
-                "brief_date": artifacts["brief"]["date"],
-                "opportunities_date": artifacts["opportunities"]["date"],
-                "context_date": artifacts["context"]["date"],
-            },
-            "warnings": warnings,
-            "errors": errors,
-        }
+        return get_source_status(category="ai").payload
     except Exception as exc:
         return _error_payload(
-            warnings=warnings,
             errors=[str(exc)],
             generated_at=_now_iso(),
             source="paos.mcp.source-status",
             summary="failed to build source status",
         )
+
+
+def tool_paos_source_digest_get(category: str | None = None, limit: int = 8) -> dict[str, Any]:
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        payload = get_source_digest(category=resolved_category, limit=limit)
+        payload["category_source"] = category_source
+        return payload
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)])
+
+
+def tool_paos_source_insight_get(category: str | None = None, limit: int = 5) -> dict[str, Any]:
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        payload = get_source_insights(category=resolved_category, limit=limit)
+        payload["category_source"] = category_source
+        return payload
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)])
+
+
+def tool_paos_source_candidates_get(
+    category: str | None = None,
+    source: str | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        payload = get_source_candidates(category=resolved_category, source=source, limit=limit)
+        payload["category_source"] = category_source
+        return payload
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)])
+
+
+def tool_paos_source_recommendation_get(category: str | None = None) -> dict[str, Any]:
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        payload = get_source_recommendation(category=resolved_category)
+        payload["category_source"] = category_source
+        return payload
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)])
+
+
+def tool_paos_source_action_draft_create(
+    reference: str | None = None,
+    category: str | None = None,
+) -> dict[str, Any]:
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        payload = create_action_from_latest_insight(category=resolved_category, reference=reference)
+        payload["category"] = resolved_category
+        payload["category_source"] = category_source
+        return payload
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)])
 
 
 def tool_paos_action_policy_get() -> dict[str, Any]:
@@ -1190,6 +1222,49 @@ def create_mcp_server():
     def paos_source_status_get() -> dict[str, Any]:
         try:
             return tool_paos_source_status_get()
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_source_digest_get")
+    def paos_source_digest_get(category: str | None = None, limit: int = 8) -> dict[str, Any]:
+        try:
+            return tool_paos_source_digest_get(category=category, limit=limit)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_source_insight_get")
+    def paos_source_insight_get(category: str | None = None, limit: int = 5) -> dict[str, Any]:
+        try:
+            return tool_paos_source_insight_get(category=category, limit=limit)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_source_candidates_get")
+    def paos_source_candidates_get(
+        category: str | None = None,
+        source: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        try:
+            return tool_paos_source_candidates_get(category=category, source=source, limit=limit)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_source_recommendation_get")
+    def paos_source_recommendation_get(category: str | None = None) -> dict[str, Any]:
+        try:
+            return tool_paos_source_recommendation_get(category=category)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_source_action_draft_create")
+    def paos_source_action_draft_create(
+        reference: str | None = None,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """Create local proposed action from latest source insight. Draft-only and no external apply."""
+        try:
+            return tool_paos_source_action_draft_create(reference=reference, category=category)
         except Exception as exc:
             return _error_payload(errors=[f"unexpected error: {exc}"])
 
