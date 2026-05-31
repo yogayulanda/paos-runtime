@@ -1068,6 +1068,7 @@ def create_mcp_server():
         category: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Safety-sensitive memory mutation tool. Forbidden in normal Telegram/Hermes free-text flow."""
         try:
             return tool_paos_memory_write(
                 content=content,
@@ -1194,6 +1195,7 @@ def create_mcp_server():
 
     @server.tool(name="paos_action_list")
     def paos_action_list(state: str | None = None, limit: int = 20) -> dict[str, Any]:
+        """List local action-loop items (read-only). Use for pending/accepted inbox views."""
         try:
             return tool_paos_action_list(state=state, limit=limit)
         except Exception as exc:
@@ -1201,6 +1203,7 @@ def create_mcp_server():
 
     @server.tool(name="paos_action_get")
     def paos_action_get(action_id: str) -> dict[str, Any]:
+        """Get one local action detail by id (read-only)."""
         try:
             return tool_paos_action_get(action_id=action_id)
         except Exception as exc:
@@ -1208,6 +1211,7 @@ def create_mcp_server():
 
     @server.tool(name="paos_action_event_list")
     def paos_action_event_list(action_id: str | None = None, limit: int = 30) -> dict[str, Any]:
+        """List local action-loop events (append-only history read)."""
         try:
             return tool_paos_action_event_list(action_id=action_id, limit=limit)
         except Exception as exc:
@@ -1215,6 +1219,7 @@ def create_mcp_server():
 
     @server.tool(name="paos_daily_action_generate")
     def paos_daily_action_generate(category: str = "runtime", persist: bool = True) -> dict[str, Any]:
+        """Generate daily action draft and optionally persist as local proposed action. No external apply."""
         try:
             return tool_paos_daily_action_generate(category=category, persist=persist)
         except Exception as exc:
@@ -1226,6 +1231,7 @@ def create_mcp_server():
         ordinal: int | None = None,
         query: str | None = None,
     ) -> dict[str, Any]:
+        """Resolve natural references like 'nomor 1' or 'yang tadi' to a local action id."""
         try:
             return tool_paos_action_resolve(reference=reference, ordinal=ordinal, query=query)
         except Exception as exc:
@@ -1233,6 +1239,7 @@ def create_mcp_server():
 
     @server.tool(name="paos_action_state_transition")
     def paos_action_state_transition(action_id: str, transition: str, note: str | None = None) -> dict[str, Any]:
+        """Transition local action-loop state only (accepted/rejected/deferred). Never executes external actions."""
         try:
             return tool_paos_action_state_transition(action_id=action_id, transition=transition, note=note)
         except Exception as exc:

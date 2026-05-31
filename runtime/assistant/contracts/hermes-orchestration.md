@@ -16,11 +16,12 @@ Scope:
   - existing command set
 
 Routing:
-1. Try Hermes first through non-interactive CLI invocation (`hermes -z`) inside `paos-hermes`.
-2. Before invocation, PAOS may prefetch compact read-only evidence for high-value intents (context/status/dashboard/daily/handoff/source) and inject it into prompt as `PAOS_READ_EVIDENCE`.
-3. If Hermes returns usable text, return that text to Telegram.
-4. If Hermes is unavailable/errors/times out, fall back to PAOS deterministic free-text intent router.
-5. If PAOS router cannot classify intent, return existing fallback/help text.
+1. For Phase 5 action-loop intents (`buat action hari ini`, `pending`, `pilih nomor`, `focus`, `tunda/tolak/accept`), use PAOS deterministic local action-loop route first.
+2. For other free-text intents, try Hermes through non-interactive CLI invocation (`hermes -z`) inside `paos-hermes`.
+3. Before Hermes invocation, PAOS may prefetch compact read-only evidence (context/status/dashboard/daily/handoff/source/action-loop) and inject it as `PAOS_READ_EVIDENCE`.
+4. If Hermes returns usable text, return that text to Telegram.
+5. If Hermes is unavailable/errors/times out, fall back to PAOS deterministic free-text intent router.
+6. If PAOS router cannot classify intent, return existing fallback/help text.
 
 Guardrails:
 - Read-only Telegram flow.
@@ -65,8 +66,8 @@ Response policy for free-text:
   4. Concrete validation/action
 
 Known roadmap anchor:
-- Completed: provider activation, Telegram Hermes-first orchestration, prompt/policy tuning, Phase 3 MCP read surfaces, and Phase 4 Agentic Draft + Approval Boundary.
-- Current status: Phase 5 Action Loop is active after Phase 4 commit.
+- Completed: provider activation, Telegram Hermes-first orchestration, prompt/policy tuning, Phase 3 MCP read surfaces, Phase 4 draft boundary, and Phase 5 persistent action loop.
+- Current status: Phase 5B UX cleanup and external-agent usability hardening.
 - Primary UX: natural-language Telegram orchestration, not command memorization.
 - Hermes may use local action-loop MCP tools for create/list/resolve/state-transition.
 - Accepted action means approved direction/focus only, not executed/applied.

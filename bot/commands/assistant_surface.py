@@ -1435,8 +1435,11 @@ async def handle_actions(update):
 
     text = _compact(update.message.text).lower()
     debug = text.startswith("/actions debug")
-    accepted = list_actions(state="accepted", limit=1)
-    pending = [item for item in list_actions(limit=12) if item.state in {"proposed", "deferred"}]
+    accepted = list_actions(state="accepted", limit=1, remember_list=False)
+    pending = [
+        item for item in list_actions(limit=30, remember_list=False)
+        if item.state in {"proposed", "deferred"} and not str(item.source).lower().startswith("e2e")
+    ][:5]
     lines = [
         "PAOS /actions (fallback/admin)",
         "",

@@ -143,8 +143,19 @@ async def _handle_action_loop(update, text: str) -> bool:
 
     if "pending" in lowered or "action saya" in lowered or "list action" in lowered:
         _trace_route("action-loop", text, "phase5_action_loop:list_pending")
-        actions = action_loop_list_actions(limit=10, remember_list=True)
-        pending = [a for a in actions if a.state in {"proposed", "deferred"}]
+        actions = action_loop_list_actions(limit=30, remember_list=False)
+        pending = [
+            a for a in actions
+            if a.state in {"proposed", "deferred"} and not str(a.source).lower().startswith("e2e")
+        ][:5]
+        try:
+            from assistant.action_loop.store import load_index, save_index  # type: ignore
+
+            idx = load_index()
+            idx["latest_listed_action_ids"] = [a.action_id for a in pending]
+            save_index(idx)
+        except Exception:
+            pass
         if not pending:
             await update.message.reply_text("Pending Actions kosong. No external action was applied.")
             return True

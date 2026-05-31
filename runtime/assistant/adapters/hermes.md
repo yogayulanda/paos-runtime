@@ -55,3 +55,11 @@ Context fallback (if MCP is not wired in Hermes yet):
   - `paos_context_get` (`section=all|runtime|intelligence|memory`)
   - `paos_brief_get`
   - `paos_opportunities_get`
+
+## Phase 5B UX + Safety Policy
+
+- Natural-language first; slash commands are fallback/admin/debug only.
+- Prefer action-loop tools for conversational approvals (`1`, `pilih nomor 1`, `accept yang tadi`).
+- `paos_memory_write` must not be used in normal free-text orchestration.
+- `paos_action_state_transition` changes local state only; no external execution.
+- Preserve boundary text for state changes: `No external action was applied.`

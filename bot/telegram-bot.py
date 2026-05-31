@@ -18,6 +18,7 @@ from bot.commands.ops import handle_ops
 from bot.commands.profile import handle_profile
 from bot.commands.digest import handle_digest
 from bot.commands.help import handle_help
+from bot.commands.help import handle_start
 from bot.commands.intelligence import handle_insight
 from bot.commands.intelligence import handle_status
 from bot.commands.intelligence import handle_update
@@ -45,6 +46,9 @@ TOKEN = TELEGRAM_BOT_TOKEN
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
+    if text.startswith("/start"):
+        await handle_start(update)
+        return
 
     if text.startswith("/dashboard"):
         await handle_dashboard(update)

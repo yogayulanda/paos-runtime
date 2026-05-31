@@ -183,6 +183,43 @@ Invariants:
 - local action-loop writes only (`assistant/action-loop/*`)
 - every state-changing flow remains no-apply/no-external-write
 
+## Tool Classification Matrix
+
+`read_only`
+- `paos_health`: runtime/provider diagnostics, no mutation.
+- `paos_memory_recall`: recall-only memory access.
+- `paos_context_get`: bounded context read.
+- `paos_brief_get`: latest brief artifact read.
+- `paos_opportunities_get`: latest opportunities read.
+- `paos_dashboard_get`: aggregated runtime read.
+- `paos_daily_get`: daily priorities read.
+- `paos_context_health_get`: context health read.
+- `paos_handoff_get`: handoff rendering read.
+- `paos_runtime_status_get`: runtime status read.
+- `paos_source_status_get`: source pipeline status read.
+- `paos_action_policy_get`: policy read.
+- `paos_action_list`: local action-loop read.
+- `paos_action_get`: local action detail read.
+- `paos_action_event_list`: local action event history read.
+- `paos_action_resolve`: local action reference resolution read.
+
+`draft_only`
+- `paos_action_draft_create`: produces draft/payload only, no execution/apply path.
+
+`local_state_write`
+- `paos_daily_action_generate`: creates local proposed action record only.
+- `paos_action_state_transition`: updates local action-loop state only.
+
+`forbidden_or_blocked` (for normal Telegram/Hermes flow)
+- `paos_memory_write`: safety-sensitive write; must not be invoked by normal free-text orchestration.
+
+## Usage Guidance for Agents
+
+- Prefer action-loop tools for conversational approvals (`1`, `pilih nomor 1`, `accept yang tadi`).
+- Use runtime/context tools before asking users for manual context.
+- Never interpret `accepted` as external execution; it only marks local direction/focus.
+- Any local state change must preserve boundary: `No external action was applied.`
+
 ## Mnemosyne scope
 
 - Mnemosyne support is local SDK backend only.

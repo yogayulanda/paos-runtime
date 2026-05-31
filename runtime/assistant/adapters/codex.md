@@ -37,15 +37,16 @@ Restart Codex session after config changes.
 ## 3) MCP smoke tests
 
 - `paos_health` args: `{"category":"ai","include_diagnostics":false}`
-- `paos_memory_write` args: `{"content":"PAOS MCP Codex test.","category":"ai"}`
-- `paos_memory_recall` args: `{"query":"PAOS MCP Codex test","category":"ai","limit":5}`
+- `paos_memory_recall` args: `{"query":"latest progress","category":"ai","limit":5}`
 - `paos_context_get` args: `{"category":"ai","section":"memory","format":"json","max_chars":2400}`
+- `paos_action_list` args: `{"limit":5}`
+- `paos_action_resolve` args: `{"reference":"action terakhir"}`
 
 Expected:
 
 - `ok=true`
 - provider metadata included
-- recall returns written item
+- action-loop tools return resolvable local action context
 
 ## 4) Troubleshooting
 
@@ -55,3 +56,11 @@ Expected:
 - `fallback_used=true`: provider fallback engaged; inspect `configured_health`.
 
 Note: exact Codex UI wiring may vary by version; command pattern above is the stable requirement.
+
+## Phase 5B Safe-Use Notes
+
+- Use PAOS MCP as source of truth when available.
+- Prefer action-loop tools (`paos_action_list`, `paos_action_resolve`, `paos_action_get`) before coding.
+- Do not request manual context paste when MCP can supply it.
+- Do not invoke `paos_memory_write` in normal Telegram/Hermes workflows.
+- Do not mutate scheduler, GitHub, repo, or gateway.

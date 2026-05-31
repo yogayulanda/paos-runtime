@@ -17,20 +17,23 @@ Purpose: operator guide for cross-tool context + memory access through PAOS MCP.
 ## Core MCP tools
 
 - `paos_health`
-- `paos_memory_write`
 - `paos_memory_recall`
 - `paos_context_get`
 - `paos_brief_get`
 - `paos_opportunities_get`
+- `paos_action_list`
+- `paos_action_get`
+- `paos_action_resolve`
+- `paos_action_state_transition`
 
 ## Quick validation sequence
 
 1. `paos_health` with `{"category":"ai"}`
-2. `paos_memory_write` with test content
-3. `paos_memory_recall` with same query
-4. `paos_context_get` with `{"section":"memory","format":"json"}`
-5. `paos_brief_get` with `{"category":"ai","format":"json"}`
-6. `paos_opportunities_get` with `{"category":"ai","format":"json"}`
+2. `paos_memory_recall` with a scoped query
+3. `paos_context_get` with `{"section":"memory","format":"json"}`
+4. `paos_brief_get` with `{"category":"ai","format":"json"}`
+5. `paos_opportunities_get` with `{"category":"ai","format":"json"}`
+6. `paos_action_list` with `{"limit":5}`
 
 ## Mnemosyne backend notes
 
@@ -45,3 +48,12 @@ Purpose: operator guide for cross-tool context + memory access through PAOS MCP.
 - Do not open public MCP ports.
 - Do not expose Mnemosyne directly.
 - Do not expose raw DB files.
+
+## Phase 5B External Agent Policy
+
+- Prefer PAOS MCP as source of truth when available.
+- Resolve latest accepted/pending work via action-loop tools before implementation.
+- Do not ask user to paste context if PAOS MCP can provide it.
+- `paos_memory_write` is forbidden for normal Telegram/Hermes flow.
+- Never mutate scheduler, GitHub, repo, or gateway from Telegram-oriented workflows.
+- Local action transitions remain local-state only (`accepted != executed`).
