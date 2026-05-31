@@ -48,6 +48,7 @@ Command semantics:
 - /today = ringkasan fokus + top opportunities + next action
 - /status = tampilkan status runtime/source/pipeline
 - free-text = route intent read-only (rule-based, no LLM call)
+- insight_relevance = personalized relevance summary from latest insight + assistant context
 """
 
     await update.message.reply_text(message)

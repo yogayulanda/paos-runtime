@@ -998,6 +998,15 @@ def _build_memory_surface_message():
         "Promotion Candidates",
         *([f"- {x}" for x in promotion_candidates] or ["- Belum inferable dari data saat ini."]),
     ]
+    personalization = _build_insight_personalization()
+    lines.extend(
+        [
+            "",
+            "Insight Relevance",
+            f"- {_compact(personalization.get('relevant_insight'))}",
+            f"- Next: {_compact(personalization.get('recommended_action'))}",
+        ]
+    )
     return "\n".join(lines)[:MAX_TELEGRAM]
 
 
@@ -1110,6 +1119,51 @@ def _build_promotion_message():
     return "\n".join(lines)[:MAX_TELEGRAM]
 
 
+def _build_insight_personalization():
+    runtime_module_root = _runtime_path() / "runtime"
+    if str(runtime_module_root) not in sys.path:
+        sys.path.insert(0, str(runtime_module_root))
+    try:
+        from assistant.insight import build_personalized_insight  # type: ignore
+
+        return build_personalized_insight(_runtime_path())
+    except Exception:
+        return {
+            "relevant_insight": "Belum ada insight personal yang bisa dirender.",
+            "why_it_matters_to_you": "Context atau insight artifact belum siap.",
+            "paos_forge_relevance": "Belum tersedia.",
+            "work_career_relevance": "Belum tersedia.",
+            "content_opportunity": "Belum tersedia.",
+            "recommended_action": "Jalankan /insight dan /context saat artifact sudah tersedia.",
+        }
+
+
+def _build_insight_relevance_message():
+    payload = _build_insight_personalization()
+    lines = [
+        "Insight Relevance",
+        "",
+        "Relevant Insight",
+        f"- {_compact(payload.get('relevant_insight'))}",
+        "",
+        "Why it matters to you",
+        f"- {_compact(payload.get('why_it_matters_to_you'))}",
+        "",
+        "PAOS / Forge relevance",
+        f"- {_compact(payload.get('paos_forge_relevance'))}",
+        "",
+        "Work / career relevance",
+        f"- {_compact(payload.get('work_career_relevance'))}",
+        "",
+        "Content opportunity",
+        f"- {_compact(payload.get('content_opportunity'))}",
+        "",
+        "Recommended action",
+        f"- {_compact(payload.get('recommended_action'))}",
+    ]
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
 async def handle_memory(update):
     await update.message.reply_text(_build_memory_surface_message())
 
@@ -1127,3 +1181,7 @@ async def handle_handoff(update):
 
 async def handle_promote_memory(update):
     await update.message.reply_text(_build_promotion_message())
+
+
+async def handle_insight_relevance(update):
+    await update.message.reply_text(_build_insight_relevance_message())

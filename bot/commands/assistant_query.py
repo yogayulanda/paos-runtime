@@ -14,9 +14,10 @@ from bot.commands.assistant_surface import (
     handle_context,
     handle_daily,
     handle_dashboard,
+    handle_insight_relevance,
     handle_opportunities,
 )
-from bot.commands.intelligence import handle_insight, handle_status
+from bot.commands.intelligence import handle_status
 
 
 def _resolve_handoff_target(text: str) -> str:
@@ -62,7 +63,7 @@ async def handle_free_text_query(update, context):
         await handle_opportunities(update)
         return
     if intent == "insight_relevance":
-        await handle_insight(update, context)
+        await handle_insight_relevance(update)
         return
     if intent == "status":
         await handle_status(update)
