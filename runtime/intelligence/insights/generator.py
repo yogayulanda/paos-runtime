@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -34,6 +35,10 @@ CONFIG_PATH = ROOT / "runtime" / "intelligence" / "config.yaml"
 INSIGHTS_DIR = ROOT / "intelligence" / "insights"
 DIGESTS_DIR = ROOT / "intelligence" / "digests"
 DEFAULT_TIMEOUT_SECONDS = 60
+DEFAULT_AI_CONNECT_TIMEOUT_SECONDS = 10
+DEFAULT_AI_READ_TIMEOUT_SECONDS = 180
+CONTRACTS_DIR = INTELLIGENCE_DIR / "contracts"
+PROMPTS_DIR = INTELLIGENCE_DIR / "prompts"
 
 
 COPY = {
@@ -52,6 +57,31 @@ COPY = {
 
 class InsightFreshnessError(RuntimeError):
     pass
+
+
+def _timeout_from_env(name, default_value):
+    raw = compact_text(os.environ.get(name))
+    if not raw:
+        return default_value
+    try:
+        value = float(raw)
+    except Exception:
+        return default_value
+    if value <= 0:
+        return default_value
+    return value
+
+
+def resolve_ai_timeout():
+    connect_timeout = _timeout_from_env(
+        "PAOS_INSIGHT_AI_CONNECT_TIMEOUT_SECONDS",
+        DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
+    )
+    read_timeout = _timeout_from_env(
+        "PAOS_INSIGHT_AI_READ_TIMEOUT_SECONDS",
+        DEFAULT_AI_READ_TIMEOUT_SECONDS,
+    )
+    return (connect_timeout, read_timeout)
 
 
 def parse_args():
@@ -279,7 +309,7 @@ def resolve_language(config=None):
     language = compact_text(((config.get("insights") or {}).get("language"))).lower()
     if language in SUPPORTED_LANGUAGES:
         return language
-    return "en"
+    return "id"
 
 
 def validate_digest_freshness(date, category):
@@ -320,74 +350,680 @@ def write_markdown(path, content):
     path.write_text(content, encoding="utf-8")
 
 
-def build_messages(category, language, signals):
-    language_name = "Indonesian" if language == "id" else "English"
-    system = (
-        "You are generating PAOS daily insights from existing intelligence signals.\n"
-        "Return strict JSON only.\n"
-        "Convert signals into editorial and actionable personal intelligence, not just news summaries.\n"
-        "Prioritize concrete next moves: what should the user read, learn, test, build, compare, post, or follow up today?\n"
-        "Treat insight output as the action layer above digest: practical, specific, and immediately usable.\n"
-        "Prefer actionable interpretations over broad strategic commentary.\n"
-        f"Write all user-facing text in {language_name}.\n"
-        "Do not create tasks, schedules, automations, memory updates, or personal-context changes.\n"
-        "Do not invent facts beyond the source signals.\n"
-        "Use concise, high-signal titles with clear action intent when possible.\n"
-        "Only cite signal titles that exist in the input."
+def load_text_template(path):
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
+
+
+def detect_source_status(signals):
+    has_signals = bool(signals)
+    github_active = False
+    linkedin_active = False
+    jobs_active = False
+    for signal in signals or []:
+        for source in (signal.get("sources") or []):
+            platform = compact_text(source.get("platform")).lower()
+            source_type = compact_text(source.get("source_type")).lower()
+            source_name = compact_text(source.get("source_name")).lower()
+            url = compact_text(source.get("url")).lower()
+            if any(token in f"{platform} {source_type} {source_name} {url}" for token in ("github", "gitlab", "bitbucket")):
+                github_active = True
+            if any(token in f"{platform} {source_type} {source_name} {url}" for token in ("linkedin", "networking")):
+                linkedin_active = True
+            if any(token in f"{platform} {source_type} {source_name} {url}" for token in ("job", "lowongan", "careers", "greenhouse", "lever")):
+                jobs_active = True
+    return {
+        "threads_rss": "active" if has_signals else "inactive",
+        "github": "active" if github_active else "inactive",
+        "linkedin": "active" if linkedin_active else "inactive",
+        "jobs": "active" if jobs_active else "inactive",
+    }
+
+
+def build_source_coverage(source_status):
+    active = []
+    inactive = []
+    missing = []
+    mapping = {
+        "threads_rss": "Threads/RSS",
+        "github": "GitHub",
+        "linkedin": "LinkedIn",
+        "jobs": "Jobs",
+    }
+    for key, label in mapping.items():
+        status = compact_text((source_status or {}).get(key)).lower()
+        if status == "active":
+            active.append(label)
+        elif status == "inactive":
+            inactive.append(label)
+        else:
+            missing.append(label)
+    notes = "Threads/RSS aktif sebagai sumber utama hari ini. Source lain belum aktif atau belum ada data relevan."
+    if not active:
+        notes = "Belum ada source aktif yang terdeteksi."
+    return {
+        "active_sources": active,
+        "inactive_sources": inactive,
+        "missing_sources": missing,
+        "notes": notes,
+    }
+
+
+def looks_actionable(signal):
+    blob = " ".join(
+        [
+            compact_text(signal.get("title")).lower(),
+            compact_text(signal.get("summary")).lower(),
+            compact_text(signal.get("why_it_matters")).lower(),
+            compact_text(signal.get("theme")).lower(),
+        ]
     )
-    user = {
-        "category": category,
-        "language": language,
-        "instructions": {
-            "required_output_schema": {
-                "insights": [
-                    {
-                        "title": "string",
-                        "insight_type": "learning|tool|project|content|career|market",
-                        "priority": "high|medium|low",
-                        "reason": "string",
-                        "source_signal_titles": ["string"],
-                        "insight_metadata": {},
-                    }
-                ]
-            },
-            "category_definitions": {
-                "learning": "Something worth studying more deeply today, such as evaluation frameworks, prompting techniques, architecture patterns, AI engineering practices, or research worth understanding.",
-                "tool": "A tool, model, workflow, library, framework, or platform worth evaluating directly.",
-                "project": "An improvement opportunity for PAOS, Forge, personal systems, or active engineering projects.",
-                "content": "A publishing, writing, personal-branding, article, thread, or educational opportunity. Use only when there is a clear publication angle.",
-                "career": "A professional opportunity, hiring trend, skill trend, role evolution, or career signal.",
-                "market": "An industry movement, business positioning, ecosystem shift, adoption trend, or investment watch signal.",
-            },
-            "constraints": [
-                "Return valid JSON only.",
-                "Return between 4 and 10 insights when possible.",
-                "Use only supported insight_type and priority values.",
-                "Each insight must reference at least one source signal title from the input.",
-                "Prefer combining related signals into one insight when it increases actionability.",
-                "Do not output tasks, reminders, TODOs, or automation instructions.",
-                "Write each reason as 2-5 complete sentences in natural style.",
-                "Each reason must include: (a) what changed / what matters now, and (b) what the user should do next today.",
-                "Avoid generic observations that stop at commentary; include concrete next-move guidance.",
-                "Prefer Indonesian practical style: direct, readable, and not academic.",
-                "Avoid repeating the same core statement across multiple insights.",
-                "Ensure at least one insight captures current important/hyped/emerging signal momentum (for Yang Lagi Penting), usually via project/career/market when appropriate.",
-                "Ensure at least one insight can support complete social-ready content opportunity (for Siap Diposting), usually via content/project/tool with a clear publishing angle.",
-                "If a signal fits multiple categories, choose the most personally actionable category using this priority order: learning, then tool, then project, then content, then career, then market.",
-                "Strongly consider learning when a signal suggests a new concept, methodology, framework, architecture pattern, engineering practice, or evaluation approach. Learning is actionable, not passive.",
-                "Use tool for tools, models, workflows, libraries, frameworks, platforms, and observability systems that are worth evaluating directly.",
-                "Use project for concrete improvement opportunities in PAOS, Forge, personal systems, or active engineering projects.",
-                "Use content only when there is a clear publishing, writing, educational, or personal-branding angle. Do not use content just because a topic is interesting.",
-                "Use market only when the primary value is industry movement, ecosystem change, adoption trend, business positioning, or investment watchfulness.",
-                "Do not use market for product releases, frameworks, tools, workflows, or engineering practices unless the signal is primarily market-oriented.",
-                "When the source signals support multiple categories, prefer a balanced distribution across categories and avoid using market as a default catch-all bucket.",
-            ],
-            "signals": signals,
+    tokens = ("tool", "workflow", "agent", "evalu", "benchmark", "reliab", "prompt", "model", "code", "platform")
+    return any(token in blob for token in tokens)
+
+
+def looks_english(text):
+    lowered = compact_text(text).lower()
+    if not lowered:
+        return False
+    markers = (
+        " the ",
+        " and ",
+        " with ",
+        " for ",
+        " this ",
+        " that ",
+        " is ",
+        " are ",
+        " can ",
+        " should ",
+        "today",
+    )
+    padded = f" {lowered} "
+    return sum(1 for marker in markers if marker in padded) >= 2
+
+
+def signal_blob(signal):
+    return " ".join(
+        [
+            compact_text(signal.get("title")).lower(),
+            compact_text(signal.get("summary")).lower(),
+            compact_text(signal.get("why_it_matters")).lower(),
+            compact_text(signal.get("theme")).lower(),
+        ]
+    )
+
+
+def signal_theme(signal):
+    blob = signal_blob(signal)
+    if "claude opus 4.8" in blob or ("uncertainty" in blob and "autonomous work" in blob):
+        return "claude_reliability"
+    if any(token in blob for token in ("usage visibility", "sandboxing", "harness", "/usage", "skills, agents, mcps", "agent tooling")):
+        return "agent_observability"
+    if any(token in blob for token in ("gpt-5.5", "codex", "braintrust", "endava", "enterprise engineering")):
+        return "codex_enterprise"
+    if any(token in blob for token in ("open-model", "open model", "open-source", "china", "ecosystem", "distillation")):
+        return "open_model_ecosystem"
+    if any(token in blob for token in ("governance", "third-party evaluations", "healthcare", "biodefense", "regulated-sector")):
+        return "ai_governance"
+    if any(token in blob for token in ("runtime", "pyodide", "datasette", "browser", "tool extension", "prototyping")):
+        return "runtime_experimentation"
+    if any(token in blob for token in ("burnout", "offline", "culture", "team health", "sustainable adoption")):
+        return "ai_work_culture"
+    if any(token in blob for token in ("revenue", "demand signal", "budget lines", "developer ux")):
+        return "market_demand"
+    return "general_ai_workflow"
+
+
+def simplified_signal(signal):
+    theme = signal_theme(signal)
+    mapping = {
+        "claude_reliability": {
+            "summary": "Hari ini kelihatan jelas bahwa model makin dinilai bukan cuma dari kecerdasan, tapi dari kejujuran saat ragu dan kemampuan bertahan di task panjang.",
+            "priority_title": "Uji Claude di task coding yang panjang dan mudah salah",
+            "important_title": "Claude mulai menonjol di kejujuran saat ragu dan kerja panjang",
+            "why": "Kalau model lebih jujur saat tidak yakin, workflow coding panjang jadi lebih aman dipakai di task yang butuh banyak langkah.",
+            "next_step": "Pilih satu task PAOS yang panjang, lalu bandingkan apakah Claude lebih stabil saat diminta menjelaskan keraguan dan progresnya.",
+            "opportunity_type": "project",
+            "opportunity_title": "PAOS bisa punya checklist evaluasi untuk task coding panjang",
+            "opportunity_action": "Tambahkan checklist sederhana untuk melihat kualitas hasil, kejujuran saat ragu, dan kestabilan di task multi-langkah.",
+            "learning_topic": "Evaluasi kejujuran model saat ragu",
+            "experiment_name": "Bandingkan Claude di task coding panjang",
+            "content_angle": "Model yang bagus bukan cuma yang pintar, tapi yang tahu kapan harus ragu",
+        },
+        "agent_observability": {
+            "summary": "Tooling agent mulai bergerak ke hal yang lebih operasional: pemantauan biaya, ruang aman, dan eksperimen harness yang rapi.",
+            "priority_title": "Catat metrik biaya dan kualitas untuk setiap langkah pipeline PAOS",
+            "important_title": "Pemantauan biaya dan ruang aman mulai jadi bagian penting dari agent production",
+            "why": "Workflow agent akan sulit di-scale kalau biaya, batas eksekusi, dan kualitas per langkah masih gelap.",
+            "next_step": "Tambahkan pencatatan biaya, waktu, dan hasil per langkah di satu pipeline PAOS yang paling sering dipakai.",
+            "opportunity_type": "project",
+            "opportunity_title": "PAOS bisa dirapikan dengan observability per langkah",
+            "opportunity_action": "Mulai dari satu pipeline utama, lalu tampilkan biaya, durasi, dan kualitas setiap langkah dalam log yang mudah dibaca.",
+            "learning_topic": "Pemantauan biaya dan kualitas per langkah",
+            "experiment_name": "Tambah logging biaya per langkah agent",
+            "content_angle": "Biaya AI sering bocor bukan di model, tapi di workflow yang tidak kelihatan",
+        },
+        "codex_enterprise": {
+            "summary": "OpenAI makin mendorong model coding ke alur kerja software tim, bukan cuma ke penggunaan personal seperti copilot.",
+            "priority_title": "Uji Claude dan Codex di satu task PAOS yang sama",
+            "important_title": "AI coding mulai bergeser dari copilot individu ke workflow kerja tim",
+            "why": "Kalau model mulai dikemas untuk delivery tim, keputusan model tidak cukup dilihat dari demo atau benchmark cepat saja.",
+            "next_step": "Pilih satu task coding berulang di PAOS, lalu bandingkan kualitas hasil, biaya, dan kebutuhan revisi antara Claude dan Codex.",
+            "opportunity_type": "content",
+            "opportunity_title": "Ada angle kuat untuk membandingkan Claude dan Codex di workflow coding berulang",
+            "opportunity_action": "Tulis hasil perbandingan yang fokus ke stabilitas, biaya, dan beban review, bukan sekadar siapa yang lebih pintar.",
+            "learning_topic": "Cara menilai model coding untuk workflow tim",
+            "experiment_name": "Adu Claude vs Codex di task pipeline yang sama",
+            "content_angle": "Perbandingan model coding paling berguna kalau diuji di workflow nyata, bukan di benchmark pendek",
+        },
+        "open_model_ecosystem": {
+            "summary": "Persaingan model makin ditentukan oleh ekosistem terbuka, bukan cuma siapa yang menang benchmark pekanan.",
+            "priority_title": "Pantau dampak ekosistem open model ke pilihan tool jangka menengah",
+            "important_title": "Ekosistem open model mulai jadi faktor strategis, bukan sekadar alternatif murah",
+            "why": "Pilihan model ke depan akan dipengaruhi ketersediaan tooling, komunitas, dan kecepatan ekosistem bergerak.",
+            "next_step": "Catat tool atau workflow yang mulai lebih mudah dibangun di atas model terbuka, lalu bandingkan dengan stack tertutup yang sekarang dipakai.",
+            "opportunity_type": "career",
+            "opportunity_title": "Literasi open model bisa jadi pembeda positioning teknis kamu",
+            "opportunity_action": "Ambil satu topik open model yang relevan, lalu jadikan bahan catatan atau opini teknis yang menunjukkan sudut pandangmu.",
+            "learning_topic": "Dinamika ekosistem open model",
+            "experiment_name": "Petakan trade-off model terbuka vs tertutup",
+            "content_angle": "Yang susah dikejar dari open model bukan satu modelnya, tapi kecepatan ekosistemnya",
+        },
+        "ai_governance": {
+            "summary": "AI di area sensitif makin menuntut evaluasi, batas akses, dan governance yang rapi sebelum dipakai luas.",
+            "priority_title": "Buat checklist evaluasi model untuk workflow yang berisiko tinggi",
+            "important_title": "Governance dan evaluasi mulai jadi syarat masuk AI ke area sensitif",
+            "why": "Semakin besar dampak workflow AI, semakin penting pembatasan akses dan cara evaluasi yang bisa diaudit.",
+            "next_step": "Susun checklist kecil untuk validasi hasil, batas akses, dan review manual sebelum model dipakai di alur yang lebih sensitif.",
+            "opportunity_type": "project",
+            "opportunity_title": "PAOS bisa lebih siap produksi dengan guardrail evaluasi yang jelas",
+            "opportunity_action": "Definisikan kapan output perlu dicek ulang, kapan akses harus dibatasi, dan metrik apa yang harus dipantau.",
+            "learning_topic": "Evaluasi pihak ketiga dan guardrail AI",
+            "experiment_name": "Tambah guardrail evaluasi untuk satu workflow",
+            "content_angle": "AI production tidak berhenti di model choice; yang menentukan sering justru guardrail dan evaluasinya",
+        },
+        "runtime_experimentation": {
+            "summary": "AI makin berguna bukan hanya untuk boilerplate, tapi untuk eksplorasi runtime, arsitektur, dan tooling yang belum jelas jalannya.",
+            "priority_title": "Gunakan AI untuk memecah eksperimen teknis yang belum punya jalur jelas",
+            "important_title": "AI mulai dipakai sebagai partner eksplorasi runtime dan tooling",
+            "why": "Nilai model terasa lebih besar saat dipakai untuk mencari jalur eksperimen, bukan hanya menulis kode rutin.",
+            "next_step": "Ambil satu eksperimen teknis yang menggantung di PAOS atau Forge, lalu pakai AI untuk memetakan opsi, risiko, dan langkah uji terkecilnya.",
+            "opportunity_type": "project",
+            "opportunity_title": "PAOS bisa memanfaatkan AI untuk eksperimen teknis yang masih abu-abu",
+            "opportunity_action": "Pilih satu ide runtime atau tooling yang belum jalan, lalu gunakan AI sebagai partner eksplorasi terarah selama satu sesi kerja.",
+            "learning_topic": "AI untuk eksplorasi runtime dan arsitektur",
+            "experiment_name": "Pakai AI untuk membedah satu eksperimen runtime",
+            "content_angle": "Nilai AI terbesar kadang bukan di coding cepat, tapi di membantu menjelajah ruang solusi yang belum jelas",
+        },
+        "ai_work_culture": {
+            "summary": "Adopsi AI tidak cuma soal tool baru, tapi juga mulai memengaruhi ritme kerja, ekspektasi, dan kesehatan tim.",
+            "priority_title": "Tentukan batas penggunaan AI yang tetap sehat untuk kerja tim",
+            "important_title": "Diskusi soal burnout dan ritme kerja mulai ikut masuk ke adopsi AI",
+            "why": "Kalau ekspektasi naik tanpa batas yang jelas, tim bisa cepat lelah meski tooling makin kuat.",
+            "next_step": "Tulis aturan ringkas kapan AI dipakai, kapan perlu review manual, dan kapan tim harus melambat supaya kualitas tetap terjaga.",
+            "opportunity_type": "career",
+            "opportunity_title": "Sudut pandang realistis soal adopsi AI bisa menguatkan positioning kepemimpinan teknis kamu",
+            "opportunity_action": "Buat catatan singkat tentang cara menjaga kualitas dan ritme kerja saat tim mulai makin bergantung pada AI.",
+            "learning_topic": "Adopsi AI yang tetap sehat untuk tim engineering",
+            "experiment_name": "Uji aturan kerja AI yang lebih sehat di satu sprint",
+            "content_angle": "Adopsi AI yang matang bukan cuma soal cepat, tapi juga soal ritme kerja yang masih masuk akal",
+        },
+        "market_demand": {
+            "summary": "Permintaan besar untuk AI coding mulai terlihat bukan cuma dari hype, tapi dari anggaran, lisensi, dan tooling yang ikut tumbuh.",
+            "priority_title": "Petakan skill AI coding yang paling relevan untuk posisi teknis kamu",
+            "important_title": "Permintaan enterprise untuk AI coding makin terlihat sebagai pasar yang nyata",
+            "why": "Kalau belanja AI coding makin besar, skill evaluasi model, workflow, dan guardrail akan makin dicari.",
+            "next_step": "Tulis daftar skill yang sekarang paling dekat dengan tren ini, lalu pilih satu yang bisa kamu latih minggu ini.",
+            "opportunity_type": "career",
+            "opportunity_title": "Positioning di AI coding workflow makin relevan untuk karier teknis",
+            "opportunity_action": "Tonjolkan pengalamanmu di evaluasi model, automation workflow, atau guardrail dalam portofolio dan percakapan profesional.",
+            "learning_topic": "Peta skill untuk AI coding workflow",
+            "experiment_name": "Audit gap skill untuk AI coding workflow",
+            "content_angle": "AI coding mulai jadi budget line nyata, bukan sekadar eksperimen kecil tim",
+        },
+        "general_ai_workflow": {
+            "summary": "Ada beberapa sinyal baru yang sama-sama mengarah ke workflow AI yang lebih operasional, terukur, dan dekat ke kerja tim.",
+            "priority_title": "Pilih satu sinyal workflow AI yang paling dekat dengan kebutuhan PAOS",
+            "important_title": "Workflow AI terus bergerak ke arah yang lebih operasional",
+            "why": "Perubahan kecil di model atau tooling bisa jadi penting kalau langsung memengaruhi kualitas kerja harian.",
+            "next_step": "Ambil satu sinyal yang paling dekat dengan kebutuhanmu hari ini, lalu turunkan jadi eksperimen kecil yang bisa selesai dalam satu sesi kerja.",
+            "opportunity_type": "project",
+            "opportunity_title": "Ada peluang merapikan workflow AI yang sudah dipakai sekarang",
+            "opportunity_action": "Fokus ke satu bottleneck utama, lalu ukur apakah perubahan kecil di model, evaluasi, atau observability memberi dampak nyata.",
+            "learning_topic": "Dasar evaluasi workflow AI",
+            "experiment_name": "Uji satu perubahan kecil di workflow AI",
+            "content_angle": "Leverage AI sering datang dari workflow yang rapi, bukan dari ganti model setiap minggu",
         },
     }
+    return mapping[theme]
+
+
+def to_indonesian_sentence(text, fallback_title):
+    value = compact_text(text)
+    if not value:
+        return ensure_complete_sentence(f"Sinyal ini relevan untuk workflow AI kamu: {fallback_title}", "id")
+    if looks_english(value):
+        return ensure_complete_sentence(
+            f"Sinyal ini menunjukkan perubahan penting untuk workflow AI kamu: {fallback_title}",
+            "id",
+        )
+    return ensure_complete_sentence(normalize_tone_id(value), "id")
+
+
+def strip_forbidden_phrases(text):
+    value = compact_text(text)
+    replacements = (
+        ("Tindaklanjuti:", ""),
+        ("berdasarkan '", ""),
+        ("Jadikan '", ""),
+        ("Sinyal ini menunjukkan", "Terlihat"),
+        (" ships ", " "),
+        (" expands around ", " "),
+        (" pushes ", " "),
+        ("enterprise engineering playbooks", "workflow software tim"),
+    )
+    for old, new in replacements:
+        value = value.replace(old, new)
+    value = value.replace("''", "").replace("'", "")
+    return compact_text(value)
+
+
+def clean_user_facing_text(text):
+    value = strip_forbidden_phrases(text)
+    if looks_english(value):
+        return ""
+    return ensure_complete_sentence(normalize_tone_id(value), "id").rstrip(".")
+
+
+def sanitize_summary_lines(lines):
+    result = []
+    for line in lines or []:
+        cleaned = strip_forbidden_phrases(line)
+        if looks_english(cleaned):
+            continue
+        cleaned = ensure_complete_sentence(normalize_tone_id(cleaned), "id")
+        if cleaned and cleaned not in result:
+            result.append(cleaned)
+    return result[:4]
+
+
+def normalize_dedupe_text(text):
+    value = compact_text(text).lower()
+    if not value:
+        return value
+    while value.startswith("#"):
+        value = value[1:].strip()
+    if ". " in value[:4]:
+        prefix, rest = value.split(". ", 1)
+        if prefix.isdigit():
+            value = rest.strip()
+    prefixes = (
+        "angle:",
+        "project:",
+        "konten:",
+        "karier:",
+        "career:",
+        "job:",
+    )
+    for prefix in prefixes:
+        if value.startswith(prefix):
+            value = value[len(prefix):].strip()
+            break
+    return compact_text(value)
+
+
+def dedupe_section_items(items, title_field):
+    deduped = []
+    seen = set()
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        title_key = normalize_dedupe_text(item.get(title_field))
+        if not title_key:
+            continue
+        refs_key = tuple(sorted(normalize_dedupe_text(ref) for ref in (item.get("source_refs") or []) if normalize_dedupe_text(ref)))
+        key = (title_key, refs_key[:2])
+        if key in seen or title_key in seen:
+            continue
+        seen.add(key)
+        seen.add(title_key)
+        deduped.append(item)
+    return deduped
+
+
+def dedupe_dashboard_payload(dashboard):
+    payload = dict(dashboard or {})
+    config = (
+        ("priority_actions", "title"),
+        ("important_signals", "title"),
+        ("opportunities", "title"),
+        ("content_branding", "angle"),
+        ("learning_queue", "topic"),
+        ("experiment_queue", "experiment"),
+        ("watchlist", "item"),
+    )
+    for section, title_field in config:
+        payload[section] = dedupe_section_items(payload.get(section) or [], title_field)
+    payload["daily_summary"] = sanitize_summary_lines(payload.get("daily_summary") or [])
+    return payload
+
+
+def title_needs_rewrite(text):
+    value = compact_text(text)
+    if not value:
+        return True
+    lowered = value.lower()
+    bad_markers = (
+        "tindaklanjuti:",
+        "ships",
+        "expands around",
+        "pushes",
+        "enterprise engineering playbooks",
+        "berdasarkan '",
+        "jadikan '",
+    )
+    if any(marker in lowered for marker in bad_markers):
+        return True
+    return looks_english(value)
+
+
+def signal_by_ref(signal_map, refs):
+    for ref in refs or []:
+        key = compact_text(ref)
+        if key and key in signal_map:
+            return signal_map[key]
+    return None
+
+
+def synthesize_dashboard_from_signals(signals, source_status):
+    relevant = [s for s in signals if looks_actionable(s)]
+    if not relevant:
+        relevant = signals[:]
+
+    def refs(signal):
+        title = compact_text(signal.get("title"))
+        return [title] if title else []
+
+    simplified = [simplified_signal(signal) for signal in relevant[:4]]
+
+    summary = []
+    if simplified:
+        summary.append(
+            "Hari ini fokus AI coding bergeser ke workflow yang lebih siap dipakai: model harus lebih jujur saat ragu, biaya harus lebih terlihat, dan eksperimen harus lebih terukur."
+        )
+        top_titles = [item["important_title"] for item in simplified[:2]]
+        if any("workflow" in title.lower() for title in top_titles):
+            summary.append("Tooling agent mulai makin matang, jadi keputusan model sekarang perlu dilihat bersama observability, guardrail, dan beban review.")
+        if any("codex" in title.lower() or "coding" in title.lower() for title in top_titles + [item["priority_title"] for item in simplified]):
+            summary.append("Buat kamu yang bangun PAOS atau workflow coding serupa, ini waktu yang pas untuk membandingkan model di task nyata, bukan di demo singkat.")
+    if not summary:
+        summary = ["Hari ini ada beberapa sinyal AI workflow yang relevan untuk keputusan kerja kamu."]
+
+    priority_actions = []
+    for signal, item in zip(relevant[:3], simplified[:3]):
+        priority_actions.append(
+            {
+                "title": item["priority_title"],
+                "why_it_matters": ensure_complete_sentence(item["why"], "id"),
+                "next_step": ensure_complete_sentence(item["next_step"], "id"),
+                "source_refs": refs(signal),
+            }
+        )
+
+    important_signals = []
+    for signal, item in zip(relevant[:3], simplified[:3]):
+        important_signals.append(
+            {
+                "title": item["important_title"],
+                "meaning": ensure_complete_sentence(item["summary"], "id"),
+                "why_watch": ensure_complete_sentence(item["why"], "id"),
+                "source_refs": refs(signal),
+            }
+        )
+
+    opportunities = []
+    if relevant and simplified:
+        top = relevant[0]
+        top_item = simplified[0]
+        opportunities.append(
+            {
+                "type": top_item["opportunity_type"],
+                "title": top_item["opportunity_title"],
+                "why_relevant": ensure_complete_sentence(top_item["why"], "id"),
+                "suggested_action": ensure_complete_sentence(top_item["opportunity_action"], "id"),
+                "source_refs": refs(top),
+            }
+        )
+
+    learning_queue = []
+    experiment_queue = []
+    if relevant and simplified:
+        first = relevant[0]
+        first_item = simplified[0]
+        learning_queue.append(
+            {
+                "topic": first_item["learning_topic"],
+                "why_learn": ensure_complete_sentence(first_item["why"], "id"),
+                "relevance": "Topik ini berhubungan langsung dengan kualitas workflow AI yang kamu pakai sehari-hari.",
+                "start_from": "Mulai dari ringkasan sinyal dan satu sumber paling jelas, lalu tulis 3 catatan yang bisa dipraktikkan.",
+                "source_refs": refs(first),
+            }
+        )
+        experiment_queue.append(
+            {
+                "experiment": first_item["experiment_name"],
+                "purpose": "Melihat dampak nyata ke kualitas dan biaya sebelum adopsi lebih luas.",
+                "smallest_test": ensure_complete_sentence(first_item["next_step"], "id"),
+                "expected_signal": "Ada perbaikan yang konsisten pada kualitas output atau efisiensi token/waktu.",
+                "source_refs": refs(first),
+            }
+        )
+
+    content_branding = []
+    if relevant and simplified:
+        first_item = simplified[0]
+        content_branding.append(
+            {
+                "angle": first_item["content_angle"],
+                "why_post": "Angle ini dekat dengan pengalaman engineer yang sedang mencari workflow AI yang lebih stabil, terukur, dan masuk akal dipakai setiap hari.",
+                "threads_ready": "Kita sering sibuk membandingkan model paling pintar. Padahal di kerjaan nyata, yang makin terasa nilainya justru workflow yang rapi: model lebih jujur saat ragu, biaya per langkah kelihatan, dan eksperimen bisa diulang dengan hasil yang konsisten. Menurutku, leverage berikutnya bukan cuma di prompt atau benchmark. Leverage berikutnya ada di cara kita mendesain kerja dengan AI.",
+                "x_ready": "Leverage AI sekarang bukan cuma model yang lebih pintar. Workflow yang rapi, biaya yang kelihatan, dan evaluasi yang jelas biasanya jauh lebih menentukan hasil.",
+                "linkedin_angle": "Pelajaran penting dari perkembangan AI coding terbaru: nilai terbesar sering datang dari workflow design, observability, dan evaluasi yang rapi, bukan hanya dari memilih model paling baru.",
+                "source_refs": refs(relevant[0]),
+            }
+        )
+
+    summary = sanitize_summary_lines(summary)
+    for collection, fields in (
+        (priority_actions, ("title", "why_it_matters", "next_step")),
+        (important_signals, ("title", "meaning", "why_watch")),
+        (opportunities, ("title", "why_relevant", "suggested_action")),
+        (learning_queue, ("topic", "why_learn", "relevance", "start_from")),
+        (experiment_queue, ("experiment", "purpose", "smallest_test", "expected_signal")),
+        (content_branding, ("angle", "why_post", "threads_ready", "x_ready", "linkedin_angle")),
+    ):
+        for item in collection:
+            for field in fields:
+                item[field] = clean_user_facing_text(item.get(field) or "") or strip_forbidden_phrases(item.get(field) or "")
+
+    return {
+        "daily_summary": summary[:4],
+        "priority_actions": priority_actions[:3],
+        "important_signals": important_signals[:3],
+        "opportunities": opportunities[:3],
+        "content_branding": content_branding[:1],
+        "learning_queue": learning_queue[:2],
+        "experiment_queue": experiment_queue[:2],
+        "github_tools": {"status": "inactive", "items": []} if source_status.get("github") != "active" else {"status": "active", "items": []},
+        "linkedin_network": {"status": "inactive", "items": []} if source_status.get("linkedin") != "active" else {"status": "active", "items": []},
+        "career_jobs": {"status": "inactive", "items": []} if source_status.get("jobs") != "active" else {"status": "active", "items": []},
+        "personal_context_updates": [],
+        "watchlist": [],
+        "source_coverage": build_source_coverage(source_status),
+    }
+
+
+def localize_dashboard_payload(dashboard, signals):
+    payload = dict(dashboard or {})
+    signal_map = {compact_text(signal.get("title")): signal for signal in signals or [] if compact_text(signal.get("title"))}
+    top_title = compact_text((signals[0] or {}).get("title")) if signals else "workflow AI hari ini"
+    summary = [compact_text(x) for x in (payload.get("daily_summary") or []) if compact_text(x)]
+    fixed_summary = []
+    for line in summary[:4]:
+        fixed_summary.append(to_indonesian_sentence(line, top_title))
+    if not fixed_summary:
+        fixed_summary = [ensure_complete_sentence(f"Hari ini ada sinyal AI yang relevan untuk kerja kamu, terutama di area {top_title}.", "id")]
+    payload["daily_summary"] = sanitize_summary_lines(fixed_summary)
+
+    for item in payload.get("priority_actions") or []:
+        signal = signal_by_ref(signal_map, item.get("source_refs"))
+        if signal and title_needs_rewrite(item.get("title")):
+            simplified = simplified_signal(signal)
+            item["title"] = simplified["priority_title"]
+            item["why_it_matters"] = simplified["why"]
+            item["next_step"] = simplified["next_step"]
+
+    for item in payload.get("important_signals") or []:
+        signal = signal_by_ref(signal_map, item.get("source_refs"))
+        if signal and title_needs_rewrite(item.get("title")):
+            simplified = simplified_signal(signal)
+            item["title"] = simplified["important_title"]
+            item["meaning"] = simplified["summary"]
+            item["why_watch"] = simplified["why"]
+
+    for item in payload.get("opportunities") or []:
+        signal = signal_by_ref(signal_map, item.get("source_refs"))
+        if signal and title_needs_rewrite(item.get("title")):
+            simplified = simplified_signal(signal)
+            item["type"] = simplified["opportunity_type"]
+            item["title"] = simplified["opportunity_title"]
+            item["why_relevant"] = simplified["why"]
+            item["suggested_action"] = simplified["opportunity_action"]
+
+    for item in payload.get("learning_queue") or []:
+        signal = signal_by_ref(signal_map, item.get("source_refs"))
+        if signal and title_needs_rewrite(item.get("topic")):
+            simplified = simplified_signal(signal)
+            item["topic"] = simplified["learning_topic"]
+            item["why_learn"] = simplified["why"]
+
+    for item in payload.get("experiment_queue") or []:
+        signal = signal_by_ref(signal_map, item.get("source_refs"))
+        if signal and title_needs_rewrite(item.get("experiment")):
+            simplified = simplified_signal(signal)
+            item["experiment"] = simplified["experiment_name"]
+            item["purpose"] = "Melihat dampak nyata ke kualitas dan biaya sebelum adopsi lebih luas."
+            item["smallest_test"] = simplified["next_step"]
+
+    for item in payload.get("content_branding") or []:
+        signal = signal_by_ref(signal_map, item.get("source_refs"))
+        if signal and title_needs_rewrite(item.get("angle")):
+            simplified = simplified_signal(signal)
+            item["angle"] = simplified["content_angle"]
+            item["why_post"] = "Angle ini kuat karena dekat dengan keputusan kerja engineer yang sedang memilih workflow AI yang lebih matang."
+            item["threads_ready"] = "Kita sering terpaku pada model terbaru. Tapi sinyal belakangan justru menunjukkan bahwa yang paling menentukan hasil adalah workflow: seberapa jujur model saat ragu, seberapa kelihatan biaya per langkah, dan seberapa rapi eksperimen bisa diulang. Buatku, itu tanda bahwa desain kerja AI sekarang lebih penting dari sekadar koleksi prompt."
+            item["x_ready"] = "Model baru penting. Tapi workflow yang rapi, evaluasi yang jelas, dan biaya yang kelihatan biasanya lebih menentukan hasil akhir."
+
+    for key_group in (
+        ("priority_actions", ("title", "why_it_matters", "next_step")),
+        ("important_signals", ("title", "meaning", "why_watch")),
+        ("opportunities", ("title", "why_relevant", "suggested_action")),
+        ("learning_queue", ("topic", "why_learn", "relevance", "start_from")),
+        ("experiment_queue", ("experiment", "purpose", "smallest_test", "expected_signal")),
+        ("content_branding", ("angle", "why_post", "threads_ready", "x_ready", "linkedin_angle")),
+    ):
+        section, fields = key_group
+        for item in payload.get(section) or []:
+            for field in fields:
+                value = item.get(field)
+                if isinstance(value, str):
+                    cleaned = clean_user_facing_text(value)
+                    item[field] = cleaned or strip_forbidden_phrases(value)
+    return dedupe_dashboard_payload(payload)
+
+
+def enforce_source_status_sections(dashboard, source_status):
+    payload = dict(dashboard or {})
+    for key, section in (
+        ("github", "github_tools"),
+        ("linkedin", "linkedin_network"),
+        ("jobs", "career_jobs"),
+    ):
+        section_value = payload.get(section)
+        if not isinstance(section_value, dict):
+            section_value = {"status": "inactive", "items": []}
+        if source_status.get(key) != "active":
+            section_value["status"] = "inactive"
+            section_value["items"] = []
+        else:
+            section_value["status"] = compact_text(section_value.get("status")) or "active"
+            section_value["items"] = section_value.get("items") or []
+        payload[section] = section_value
+    payload["source_coverage"] = build_source_coverage(source_status)
+    return payload
+
+
+def dashboard_needs_backfill(dashboard, signals):
+    if not isinstance(dashboard, dict):
+        return True
+    if not signals:
+        return False
+    signal_count = len(signals)
+    if signal_count < 3:
+        return False
+    return (
+        len(dashboard.get("priority_actions") or []) < 2
+        or len(dashboard.get("important_signals") or []) < 2
+        or len(dashboard.get("opportunities") or []) < 1
+        or (
+            len(dashboard.get("learning_queue") or []) < 1
+            and len(dashboard.get("experiment_queue") or []) < 1
+        )
+    )
+
+
+def merge_dashboard_with_fallback(dashboard, fallback):
+    result = dict(fallback)
+    if not isinstance(dashboard, dict):
+        return result
+    for key, value in dashboard.items():
+        if key not in result:
+            result[key] = value
+            continue
+        if isinstance(result[key], list):
+            if value:
+                result[key] = value
+        elif isinstance(result[key], dict):
+            merged = dict(result[key])
+            if isinstance(value, dict):
+                merged.update({k: v for k, v in value.items() if v not in (None, "", [], {})})
+            result[key] = merged
+        elif value not in (None, ""):
+            result[key] = value
+    return result
+
+
+def render_user_prompt(signals, source_status):
+    template = load_text_template(PROMPTS_DIR / "insight-user.md")
+    digest_blob = json.dumps({"signals": signals}, ensure_ascii=False, indent=2)
+    return (
+        template.replace("{{ personal_context }}", "Tidak ada konteks personal tambahan.")
+        .replace("{{ insight_contract }}", load_text_template(CONTRACTS_DIR / "insight.md"))
+        .replace("{{ content_style_contract }}", load_text_template(CONTRACTS_DIR / "content-style.md"))
+        .replace("{{ digest }}", digest_blob)
+        .replace("{{ source_status }}", json.dumps(source_status, ensure_ascii=False))
+    )
+
+
+def build_messages(category, language, signals):
+    source_status = detect_source_status(signals)
+    system = load_text_template(PROMPTS_DIR / "insight-system.md")
+    user = render_user_prompt(signals=signals, source_status=source_status)
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+        {"role": "user", "content": user},
     ]
 
 
@@ -471,6 +1107,124 @@ def validate_insight(raw_insight, signal_map, category, language, generation_mod
     }
 
 
+def build_insights_from_dashboard(dashboard, signals, category, language, generation_mode):
+    signal_map = {
+        compact_text(signal.get("title")): signal
+        for signal in signals
+        if compact_text(signal.get("title"))
+    }
+    raw_insights = []
+    for item in (dashboard.get("priority_actions") or []):
+        raw_insights.append(
+            {
+                "title": item.get("title"),
+                "insight_type": "project",
+                "priority": "high",
+                "reason": f"{compact_text(item.get('why_it_matters'))} {compact_text(item.get('next_step'))}",
+                "source_signal_titles": item.get("source_refs") or [],
+                "insight_metadata": {"section": "priority_actions"},
+            }
+        )
+    for item in (dashboard.get("important_signals") or []):
+        raw_insights.append(
+            {
+                "title": item.get("title"),
+                "insight_type": "market",
+                "priority": "medium",
+                "reason": f"{compact_text(item.get('meaning'))} {compact_text(item.get('why_watch'))}",
+                "source_signal_titles": item.get("source_refs") or [],
+                "insight_metadata": {"section": "important_signals"},
+            }
+        )
+    for item in (dashboard.get("learning_queue") or []):
+        raw_insights.append(
+            {
+                "title": item.get("topic"),
+                "insight_type": "learning",
+                "priority": "medium",
+                "reason": f"{compact_text(item.get('why_learn'))} {compact_text(item.get('start_from'))}",
+                "source_signal_titles": item.get("source_refs") or [],
+                "insight_metadata": {"section": "learning_queue"},
+            }
+        )
+    for item in (dashboard.get("experiment_queue") or []):
+        raw_insights.append(
+            {
+                "title": item.get("experiment"),
+                "insight_type": "tool",
+                "priority": "medium",
+                "reason": f"{compact_text(item.get('purpose'))} {compact_text(item.get('smallest_test'))}",
+                "source_signal_titles": item.get("source_refs") or [],
+                "insight_metadata": {"section": "experiment_queue"},
+            }
+        )
+    for item in (dashboard.get("content_branding") or []):
+        raw_insights.append(
+            {
+                "title": item.get("angle"),
+                "insight_type": "content",
+                "priority": "medium",
+                "reason": compact_text(item.get("why_post")),
+                "source_signal_titles": item.get("source_refs") or [],
+                "insight_metadata": {"section": "content_branding"},
+            }
+        )
+    if not raw_insights:
+        raise ValueError("Insight dashboard produced no insight candidates.")
+
+    insights = []
+    seen_keys = set()
+    for raw_insight in raw_insights:
+        normalized = validate_insight(
+            raw_insight=raw_insight,
+            signal_map=signal_map,
+            category=category,
+            language=language,
+            generation_mode=generation_mode,
+        )
+        if not normalized:
+            continue
+        key = (
+            normalized["title"].lower(),
+            normalized["insight_type"],
+            tuple(signal["title"] for signal in normalized["source_signals"]),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        insights.append(normalized)
+    if insights:
+        insights[0]["insight_metadata"]["dashboard_payload"] = dashboard
+    if not insights:
+        raise ValueError("Insight dashboard produced no valid insights after validation.")
+    return ensure_important_coverage(insights, language)
+
+
+def build_fallback_artifact(category, language, signals, generation_mode, ai_error=None, timeout_info=None):
+    source_status = detect_source_status(signals)
+    dashboard = synthesize_dashboard_from_signals(signals=signals, source_status=source_status)
+    dashboard = enforce_source_status_sections(dashboard, source_status)
+    dashboard = localize_dashboard_payload(dashboard, signals)
+    dashboard = dedupe_dashboard_payload(dashboard)
+    insights = build_insights_from_dashboard(
+        dashboard=dashboard,
+        signals=signals,
+        category=category,
+        language=language,
+        generation_mode=generation_mode,
+    )
+    diagnostics = {
+        "generation_mode": generation_mode,
+        "fallback_used": True,
+        "ai_failed": bool(ai_error),
+        "ai_error_type": type(ai_error).__name__ if ai_error else None,
+        "ai_error_message": compact_text(str(ai_error)) if ai_error else None,
+    }
+    if timeout_info:
+        diagnostics.update(timeout_info)
+    return insights, diagnostics
+
+
 def generate_ai_insights(category, language, signals, timeout_seconds=DEFAULT_TIMEOUT_SECONDS):
     config = env_config()
     if not ai_available():
@@ -478,6 +1232,7 @@ def generate_ai_insights(category, language, signals, timeout_seconds=DEFAULT_TI
 
     started = time.time()
     endpoint = resolve_endpoint(config)
+    timeout_tuple = resolve_ai_timeout()
     payload = {
         "model": config["model"],
         "messages": build_messages(category=category, language=language, signals=signals),
@@ -493,46 +1248,32 @@ def generate_ai_insights(category, language, signals, timeout_seconds=DEFAULT_TI
         endpoint,
         headers=headers,
         json=payload,
-        timeout=timeout_seconds,
+        timeout=timeout_tuple,
     )
     response.raise_for_status()
     content = parse_response_content(response.json())
     parsed = json.loads(content)
-    raw_insights = parsed.get("insights")
-    if not isinstance(raw_insights, list) or not raw_insights:
-        raise ValueError("AI response did not include a valid `insights` array.")
-
-    signal_map = {
-        compact_text(signal.get("title")): signal
-        for signal in signals
-        if compact_text(signal.get("title"))
-    }
-    insights = []
-    seen_keys = set()
-    for raw_insight in raw_insights:
-        normalized = validate_insight(
-            raw_insight=raw_insight,
-            signal_map=signal_map,
-            category=category,
-            language=language,
-            generation_mode="ai",
-        )
-        if not normalized:
-            continue
-        key = (
-            normalized["title"].lower(),
-            normalized["insight_type"],
-            tuple(signal["title"] for signal in normalized["source_signals"]),
-        )
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        insights.append(normalized)
-
-    if not insights:
-        raise ValueError("AI response produced no valid insights after validation.")
-
-    insights = ensure_important_coverage(insights, language)
+    dashboard = parsed if isinstance(parsed, dict) else {}
+    source_status = detect_source_status(signals)
+    fallback_dashboard = synthesize_dashboard_from_signals(signals=signals, source_status=source_status)
+    if dashboard_needs_backfill(dashboard, signals):
+        dashboard = merge_dashboard_with_fallback(dashboard, fallback_dashboard)
+    if not compact_text(" ".join(dashboard.get("daily_summary") or [])).strip():
+        dashboard["daily_summary"] = fallback_dashboard.get("daily_summary") or []
+    dashboard["source_coverage"] = dashboard.get("source_coverage") or fallback_dashboard.get("source_coverage")
+    dashboard["github_tools"] = dashboard.get("github_tools") or fallback_dashboard.get("github_tools")
+    dashboard["linkedin_network"] = dashboard.get("linkedin_network") or fallback_dashboard.get("linkedin_network")
+    dashboard["career_jobs"] = dashboard.get("career_jobs") or fallback_dashboard.get("career_jobs")
+    dashboard = enforce_source_status_sections(dashboard, source_status)
+    dashboard = localize_dashboard_payload(dashboard, signals)
+    dashboard = dedupe_dashboard_payload(dashboard)
+    insights = build_insights_from_dashboard(
+        dashboard=dashboard,
+        signals=signals,
+        category=category,
+        language=language,
+        generation_mode="ai",
+    )
 
     diagnostics = {
         "generation_mode": "ai",
@@ -540,6 +1281,11 @@ def generate_ai_insights(category, language, signals, timeout_seconds=DEFAULT_TI
         "ai_model": config["model"],
         "ai_endpoint": endpoint,
         "config_source": config["config_source"],
+        "ai_connect_timeout_seconds": timeout_tuple[0],
+        "ai_read_timeout_seconds": timeout_tuple[1],
+        "ai_timeout_seconds": timeout_tuple[1],
+        "ai_failed": False,
+        "fallback_used": False,
         "ai_duration_seconds": round(time.time() - started, 2),
     }
     return insights, diagnostics
@@ -633,7 +1379,15 @@ def build_insight_layer(category, date, mode="auto"):
         "language": language,
         "ai_provider": env_config().get("provider") or None,
         "ai_model": env_config().get("model") or None,
+        "ai_endpoint": resolve_endpoint(env_config()) if env_config().get("provider") and env_config().get("api_key") else None,
     }
+    timeout_tuple = resolve_ai_timeout()
+    diagnostics["ai_connect_timeout_seconds"] = timeout_tuple[0]
+    diagnostics["ai_read_timeout_seconds"] = timeout_tuple[1]
+    diagnostics["ai_timeout_seconds"] = timeout_tuple[1]
+    diagnostics["ai_failed"] = False
+    diagnostics["ai_error_type"] = None
+    diagnostics["ai_error_message"] = None
 
     if mode == "heuristic":
         insights, extra_diagnostics = generate_heuristic_insights(signals=signals, language=language)
@@ -651,28 +1405,45 @@ def build_insight_layer(category, date, mode="auto"):
             diagnostics.update(extra_diagnostics)
             diagnostics["generation_mode"] = "ai"
         except Exception as exc:
-            if mode == "ai":
-                raise
             fallback_used = True
             diagnostics["fallback_used"] = True
+            diagnostics["ai_failed"] = True
             diagnostics["ai_error"] = str(exc)
-            insights, extra_diagnostics = generate_heuristic_insights(signals=signals, language=language)
+            diagnostics["ai_error_type"] = type(exc).__name__
+            diagnostics["ai_error_message"] = compact_text(str(exc))
+            fallback_generation_mode = "fallback_ai" if mode == "ai" else "heuristic"
+            insights, extra_diagnostics = build_fallback_artifact(
+                category=category,
+                language=language,
+                signals=signals,
+                generation_mode=fallback_generation_mode,
+                ai_error=exc,
+                timeout_info={
+                    "ai_provider": env_config().get("provider") or None,
+                    "ai_model": env_config().get("model") or None,
+                    "ai_endpoint": resolve_endpoint(env_config()) if env_config().get("provider") and env_config().get("api_key") else None,
+                    "ai_connect_timeout_seconds": timeout_tuple[0],
+                    "ai_read_timeout_seconds": timeout_tuple[1],
+                    "ai_timeout_seconds": timeout_tuple[1],
+                },
+            )
             diagnostics.update(extra_diagnostics)
-            diagnostics["generation_mode"] = "heuristic"
+            diagnostics["generation_mode"] = fallback_generation_mode
+            generation_mode = fallback_generation_mode
 
     jsonl_path = output_jsonl_path(resolved_date, category)
     markdown_path = output_markdown_path(resolved_date, category)
     write_jsonl(jsonl_path, insights)
-    write_markdown(
-        markdown_path,
-        render_insights(
-            category=category,
-            date=resolved_date,
-            language=language,
-            signals=signals,
-            insights=insights,
-        ),
-    )
+    dashboard_payload = None
+    if insights:
+        dashboard_payload = (insights[0].get("insight_metadata") or {}).get("dashboard_payload")
+    if not dashboard_payload:
+        dashboard_payload = synthesize_dashboard_from_signals(signals=signals, source_status=detect_source_status(signals))
+    dashboard_payload = enforce_source_status_sections(dashboard_payload, detect_source_status(signals))
+    dashboard_payload = localize_dashboard_payload(dashboard_payload, signals)
+    dashboard_payload = dedupe_dashboard_payload(dashboard_payload)
+    write_markdown(markdown_path, render_insights(language=language, insights=insights, dashboard=dashboard_payload, signals=signals))
+    diagnostics["output_path"] = str(markdown_path)
 
     return InsightBuildResult(
         category=category,

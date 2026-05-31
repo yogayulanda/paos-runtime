@@ -94,6 +94,8 @@ def build_status(
         "generation_mode": result.generation_mode if result else None,
         "fallback_used": result.fallback_used if result else False,
         "type_distribution": result.type_distribution if result else {},
+        "output_path": str(result.markdown_path) if result else None,
+        "diagnostics": result.diagnostics if result else {},
         "telegram_sent": telegram_sent,
         "duration_seconds": round(duration, 2),
     }

@@ -71,7 +71,7 @@ app.add_handler(
 app.add_handler(
     CallbackQueryHandler(
         handle_insight_callback,
-        pattern=r"^(digest_signal:[1-5]|insight_section:(prioritas|penting|pelajari|coba)|insight_detail:[1-3]|insight_post)$",
+        pattern=r"^(paos_section:(actions|signals|opportunities|content|learning|experiments|github|linkedin|jobs|context|watchlist)|digest_signal:[1-5]|insight_section:(prioritas|penting|pelajari|coba)|insight_detail:[1-3]|insight_post)$",
     )
 )
 

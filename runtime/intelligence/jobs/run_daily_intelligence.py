@@ -162,7 +162,7 @@ def main():
             "insight",
             [
                 sys.executable,
-                str(INTELLIGENCE_DIR / "insights" / "generator.py"),
+                str(INTELLIGENCE_DIR / "jobs" / "run_insights.py"),
                 "--category",
                 args.category,
                 "--date",

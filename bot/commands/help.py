@@ -4,9 +4,9 @@ async def handle_help(update):
 
 Main Commands:
 /profile - Show personal context summary
-/insight - Lihat dashboard harian
+/insight - Lihat dashboard harian PAOS
 /update - Ambil data terbaru lalu tampilkan dashboard
-/status - Cek apakah pipeline terakhir sukses
+/status - Cek status pipeline terakhir
 /digest - Legacy digest command
 /ops - Show VPS/runtime status
 /help - Show this help
