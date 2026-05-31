@@ -14,13 +14,19 @@ categories:
         url: "https://www.interconnects.ai/feed"
         enabled: true
         reason: "High-signal AI systems, model ecosystems, and open-model analysis"
-        limit: 5
+        limit: 3
 
       - name: "simon_willison"
         url: "https://simonwillison.net/atom/everything/"
         enabled: true
         reason: "Practical LLM, tooling, and AI product analysis"
-        limit: 5
+        limit: 3
+
+      - name: "latent_space"
+        url: "https://www.latent.space/feed"
+        enabled: true
+        reason: "High-signal AI engineering and product strategy analysis"
+        limit: 3
 
   career:
     feeds: []

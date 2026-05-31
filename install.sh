@@ -60,7 +60,7 @@ else
   echo ".env already exists; leaving it unchanged."
 fi
 
-chmod +x "$ROOT/install.sh" "$ROOT/doctor.sh" 2>/dev/null || true
+chmod +x "$ROOT/install.sh" "$ROOT/doctor.sh" "$ROOT/scripts/daily-intelligence.sh" 2>/dev/null || true
 
 echo
 echo "Install complete."
@@ -68,3 +68,4 @@ echo "Next steps:"
 echo "  1. Edit .env if needed."
 echo "  2. Run: bash doctor.sh"
 echo "  3. Run a pipeline: venv/bin/python runtime/intelligence/jobs/run_daily_intelligence.py --category ai"
+echo "  4. Optional scheduler: /bin/bash $ROOT/scripts/daily-intelligence.sh"

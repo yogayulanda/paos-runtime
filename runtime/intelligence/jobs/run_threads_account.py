@@ -94,6 +94,7 @@ def build_status(
     extraction_mode=None,
     category=None,
     category_source=None,
+    diagnostics=None,
 ):
     finished_at = now_iso()
     duration = max(
@@ -113,6 +114,7 @@ def build_status(
         "items_collected": items_collected,
         "paths": paths or [],
         "extraction_mode": extraction_mode,
+        "diagnostics": diagnostics or {},
         "duration_seconds": round(duration, 2),
     }
 
@@ -244,33 +246,65 @@ def main():
         errors = result.get("errors") or []
         paths = [str(path) for path in result.get("paths") or []]
         items_collected = len(result.get("items") or [])
+        diagnostics = result.get("diagnostics") or {}
+        accounts_total = int(diagnostics.get("accounts_total") or 0)
+        accounts_succeeded = int(diagnostics.get("accounts_succeeded") or 0)
+        accounts_empty = int(diagnostics.get("accounts_empty") or 0)
+        accounts_failed = int(diagnostics.get("accounts_failed") or 0)
+        accounts_processable = max(0, accounts_total - int((result.get("stats") or {}).get("skipped_accounts") or 0))
 
-        if errors:
-            first = errors[0]
+        if accounts_processable <= 0:
             status = build_status(
                 started_at=started_at,
                 status="failed",
-                error_code=first.get("code", "UNKNOWN_ERROR"),
-                error_message=first.get("message", "Unknown Threads account failure."),
+                error_code="NO_ACCOUNTS_PROCESSABLE",
+                error_message="No enabled Threads accounts could be processed.",
                 items_collected=items_collected,
                 paths=paths,
                 extraction_mode=args.extraction_mode,
                 category=resolved_category.value,
                 category_source=resolved_category.source,
+                diagnostics=diagnostics,
             )
             write_status(status)
             send_telegram_message(format_failure_message(status))
             print(json.dumps(status, ensure_ascii=True, indent=2))
             return
 
+        if accounts_succeeded <= 0 and accounts_failed > 0 and items_collected <= 0:
+            first = errors[0] if errors else {}
+            status = build_status(
+                started_at=started_at,
+                status="failed",
+                error_code=first.get("code", "ALL_ACCOUNTS_FAILED"),
+                error_message=first.get(
+                    "message",
+                    "All enabled Threads accounts failed to produce usable items due to errors.",
+                ),
+                items_collected=items_collected,
+                paths=paths,
+                extraction_mode=args.extraction_mode,
+                category=resolved_category.value,
+                category_source=resolved_category.source,
+                diagnostics=diagnostics,
+            )
+            write_status(status)
+            send_telegram_message(format_failure_message(status))
+            print(json.dumps(status, ensure_ascii=True, indent=2))
+            return
+
+        final_status = "success"
+        if accounts_failed > 0 or accounts_empty > 0:
+            final_status = "success_with_warnings"
         status = build_status(
             started_at=started_at,
-            status="success",
+            status=final_status,
             items_collected=items_collected,
             paths=paths,
             extraction_mode=args.extraction_mode,
             category=resolved_category.value,
             category_source=resolved_category.source,
+            diagnostics=diagnostics,
         )
         write_status(status)
         print(json.dumps(status, ensure_ascii=True, indent=2))

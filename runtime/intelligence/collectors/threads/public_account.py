@@ -35,11 +35,20 @@ def collect_account_feed(
         "accepted_posts": 0,
         "deduped_posts": 0,
     }
+    diagnostics = {
+        "accounts_total": 0,
+        "accounts_succeeded": 0,
+        "accounts_empty": 0,
+        "accounts_failed": 0,
+        "account_warnings": [],
+        "items_collected": 0,
+    }
     debug_events = []
     errors = []
     skipped = []
 
     for account in iter_accounts(config, category):
+        diagnostics["accounts_total"] += 1
         stats["accounts_processed"] += 1
         username = account["username"]
         account_category = account["category"]
@@ -71,20 +80,54 @@ def collect_account_feed(
                 debug_events.extend(event_batch)
         if message:
             latest_event = event_batch[-1] if event_batch else {}
+            code = classify_threads_error(
+                message,
+                diagnostics=latest_event,
+                authenticated=authenticated,
+            )
+            if code == "EXTRACTION_EMPTY":
+                diagnostics["accounts_empty"] += 1
+                diagnostics["account_warnings"].append(
+                    {
+                        "username": username,
+                        "reason": "empty_extraction",
+                        "code": code,
+                        "message": message,
+                    }
+                )
+            else:
+                diagnostics["accounts_failed"] += 1
+                diagnostics["account_warnings"].append(
+                    {
+                        "username": username,
+                        "reason": "extraction_error",
+                        "code": code,
+                        "message": message,
+                    }
+                )
             errors.append(
                 build_error(
                     source_type="account",
                     source_name=username,
-                    code=classify_threads_error(
-                        message,
-                        diagnostics=latest_event,
-                        authenticated=authenticated,
-                    ),
+                    code=code,
                     message=message,
                 )
             )
+            continue
         stats["raw_posts"] += len(raw_posts)
+        if not raw_posts:
+            diagnostics["accounts_empty"] += 1
+            diagnostics["account_warnings"].append(
+                {
+                    "username": username,
+                    "reason": "no_posts",
+                    "code": "NO_POSTS",
+                    "message": "No posts were returned for this account.",
+                }
+            )
+            continue
 
+        accepted_for_account = 0
         for post in raw_posts:
             item = build_item(
                 source_type="account",
@@ -108,13 +151,28 @@ def collect_account_feed(
             run_seen.add(key)
             items.append(item)
             stats["accepted_posts"] += 1
+            accepted_for_account += 1
+        if accepted_for_account > 0:
+            diagnostics["accounts_succeeded"] += 1
+        else:
+            diagnostics["accounts_empty"] += 1
+            diagnostics["account_warnings"].append(
+                {
+                    "username": username,
+                    "reason": "no_usable_items",
+                    "code": "NO_USABLE_ITEMS",
+                    "message": "Posts were fetched but no usable items were collected.",
+                }
+            )
 
     written_paths = write_items(items)
+    diagnostics["items_collected"] = len(items)
 
     return {
         "items": items,
         "paths": written_paths,
         "stats": stats,
+        "diagnostics": diagnostics,
         "debug_events": debug_events,
         "errors": errors,
         "skipped": skipped,
