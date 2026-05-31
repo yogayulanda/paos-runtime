@@ -13,6 +13,7 @@ from assistant.diagnostics import run_diagnostics
 from assistant.brief import resolve_latest_assistant_brief
 from assistant.opportunities import resolve_latest_assistant_opportunities
 from assistant.memory import MemoryQuery, MemoryWrite, load_memory_provider
+from assistant.actions import create_action_draft, get_action_policy
 
 from .schemas import (
     DEFAULT_CONTEXT_MAX_CHARS,
@@ -862,6 +863,53 @@ def tool_paos_source_status_get() -> dict[str, Any]:
         )
 
 
+def tool_paos_action_policy_get() -> dict[str, Any]:
+    try:
+        return {
+            "ok": True,
+            "generated_at": _now_iso(),
+            "source": "paos.mcp.action-policy",
+            "status": "ready",
+            "summary": "Phase 4 draft-only action policy.",
+            "sections": {"policy": get_action_policy()},
+            "warnings": [],
+            "errors": [],
+        }
+    except Exception as exc:
+        return _error_payload(
+            errors=[str(exc)],
+            generated_at=_now_iso(),
+            source="paos.mcp.action-policy",
+            summary="failed to load action policy",
+        )
+
+
+def tool_paos_action_draft_create(
+    intent: str,
+    target: str | None = None,
+    category: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return {
+            "ok": True,
+            "generated_at": _now_iso(),
+            "source": "paos.mcp.action-draft",
+            "status": "ready",
+            "summary": "Draft generated with approval boundary. No action was applied.",
+            "sections": {"draft": create_action_draft(intent=intent, target=target, category=category)},
+            "warnings": [],
+            "errors": [],
+        }
+    except Exception as exc:
+        return _error_payload(
+            category=category,
+            errors=[str(exc)],
+            generated_at=_now_iso(),
+            source="paos.mcp.action-draft",
+            summary="failed to generate action draft",
+        )
+
+
 def _load_fastmcp():
     try:
         from mcp.server.fastmcp import FastMCP
@@ -977,6 +1025,35 @@ def create_mcp_server():
             return tool_paos_runtime_status_get()
         except Exception as exc:
             return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_action_policy_get")
+    def paos_action_policy_get() -> dict[str, Any]:
+        try:
+            payload = tool_paos_action_policy_get()
+            payload["policy"] = payload.get("sections", {}).get("policy")
+            return payload
+        except Exception as exc:
+            return _error_payload(
+                errors=[str(exc)],
+                generated_at=_now_iso(),
+                source="paos.mcp.action-policy",
+                summary="failed to load action policy",
+            )
+
+    @server.tool(name="paos_action_draft_create")
+    def paos_action_draft_create(intent: str, target: str | None = None, category: str | None = None) -> dict[str, Any]:
+        try:
+            payload = tool_paos_action_draft_create(intent=intent, target=target, category=category)
+            payload["draft"] = payload.get("sections", {}).get("draft")
+            return payload
+        except Exception as exc:
+            return _error_payload(
+                category=category,
+                errors=[str(exc)],
+                generated_at=_now_iso(),
+                source="paos.mcp.action-draft",
+                summary="failed to generate action draft",
+            )
 
     @server.tool(name="paos_source_status_get")
     def paos_source_status_get() -> dict[str, Any]:

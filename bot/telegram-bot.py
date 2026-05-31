@@ -35,6 +35,7 @@ from bot.commands.assistant_surface import handle_promote_memory
 from bot.commands.assistant_surface import handle_draft_context_update
 from bot.commands.assistant_surface import handle_preview_context_update
 from bot.commands.assistant_surface import handle_apply_context_update
+from bot.commands.assistant_surface import handle_draft
 from bot.commands.assistant_query import handle_free_text_query
 
 
@@ -82,6 +83,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text.startswith("/apply-context-update"):
         await handle_apply_context_update(update)
+        return
+
+    if text.startswith("/draft"):
+        await handle_draft(update)
         return
 
     if text.startswith("/profile"):

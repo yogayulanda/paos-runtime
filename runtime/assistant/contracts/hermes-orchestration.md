@@ -29,6 +29,8 @@ Guardrails:
 - No scheduler changes.
 - No GitHub source mutation.
 - No public HTTP/SSE/API introduced for this bridge.
+- Mutation-like requests must stop at draft + approval boundary.
+- Blocked requests must be refused safely without executable commands.
 
 Response policy for free-text:
 - Default response language: Indonesian.
@@ -42,6 +44,9 @@ Response policy for free-text:
   - `paos_opportunities_get`
 - For handoff questions, prefer:
   - `paos_handoff_get`
+- For draft/policy/approval-boundary questions, prefer:
+  - `paos_action_policy_get`
+  - `paos_action_draft_create`
 - For source/intelligence status questions, prefer:
   - `paos_source_status_get`
 - Primitive read tools (fallback/composition):
@@ -60,9 +65,10 @@ Response policy for free-text:
   4. Concrete validation/action
 
 Known roadmap anchor:
-- Completed: provider activation, Telegram Hermes-first orchestration, prompt/policy tuning, and Phase 3 MCP read surfaces.
-- Current next recommended phase: Phase 4 Agentic Draft + Approval Boundary.
-- Then: persistence, daily automation, GitHub source activation, intelligence expansion, memory upgrade.
+- Completed: provider activation, Telegram Hermes-first orchestration, prompt/policy tuning, Phase 3 MCP read surfaces, and Phase 4 Agentic Draft + Approval Boundary.
+- Current status: Phase 4 Agentic Draft + Approval Boundary is active/implemented.
+- Immediate next step: final validation and commit of Phase 4.
+- Do not recommend Phase 5 unless Phase 4 is committed and user asks next roadmap.
 
 Implementation notes:
 - Hermes timeout should stay bounded (30-60 seconds).

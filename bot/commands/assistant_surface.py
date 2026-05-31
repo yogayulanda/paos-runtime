@@ -1377,3 +1377,51 @@ async def handle_apply_context_update(update):
         lines.extend(["Warnings", *[f"- {_compact(x)}" for x in warnings[:6]]])
     lines.extend(["Audit", f"- {_compact(result.get('audit_path'))}"])
     await update.message.reply_text("\n".join(lines)[:MAX_TELEGRAM])
+
+
+async def handle_draft(update):
+    runtime_module_root = _runtime_path() / "runtime"
+    if str(runtime_module_root) not in sys.path:
+        sys.path.insert(0, str(runtime_module_root))
+    from assistant.actions import create_action_draft, render_action_draft_telegram  # type: ignore
+    from assistant.mcp.server import tool_paos_action_policy_get  # type: ignore
+
+    text = _compact(update.message.text).strip()
+    lowered = text.lower()
+    if lowered.startswith("/draft policy"):
+        policy_payload = tool_paos_action_policy_get()
+        policy = (policy_payload.get("sections") or {}).get("policy") or {}
+        lines = [
+            "PAOS Action Policy",
+            "",
+            "- status: Phase 4 Agentic Draft + Approval Boundary active",
+            f"- version: {_compact(policy.get('version')) or 'phase4-draft-boundary-v1'}",
+            f"- mode: {_compact(policy.get('mode')) or 'draft_only_boundary'}",
+            f"- mutations_enabled: {'true' if policy.get('mutations_enabled') else 'false'}",
+            f"- approval_apply_enabled: {'true' if policy.get('approval_apply_enabled') else 'false'}",
+            "- next_step: final validation and commit of Phase 4",
+            "",
+            "No action was applied.",
+        ]
+        await update.message.reply_text("\n".join(lines)[:MAX_TELEGRAM])
+        return
+
+    intent = "next implementation plan draft"
+    target = None
+    if lowered.startswith("/draft daily"):
+        intent = "daily action draft"
+    elif lowered.startswith("/draft next"):
+        intent = "next implementation plan draft"
+    elif lowered.startswith("/draft memory"):
+        intent = "memory promotion suggestion draft"
+    elif lowered.startswith("/draft handoff"):
+        intent = "handoff draft"
+        if "codex" in lowered:
+            target = "codex"
+        elif "claude" in lowered:
+            target = "claude"
+        elif "hermes" in lowered:
+            target = "hermes"
+
+    payload = create_action_draft(intent=intent, target=target, category="ai")
+    await update.message.reply_text(render_action_draft_telegram(payload))

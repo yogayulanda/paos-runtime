@@ -13,6 +13,7 @@ Assistant OS:
 /draft-context-update - Build controlled durable-context draft (no direct write)
 /preview-context-update - Preview latest controlled write draft
 /apply-context-update CONFIRM - Apply latest draft with explicit confirmation only
+/draft - Draft-only action surface (/draft policy|next|daily|handoff codex|memory)
 
 Intelligence:
 /today - Ringkasan harian assistant + opportunities
@@ -49,6 +50,7 @@ Command semantics:
 - /draft-context-update = create draft artifact only (no durable file mutation)
 - /preview-context-update = compact target/addition/risk preview from latest draft
 - /apply-context-update CONFIRM = apply latest draft to allowlisted files only
+- /draft = phase-4 bounded draft surface (no apply/mutation)
 - /update = jalankan pipeline harian + tampilkan dashboard
 - /insight = tampilkan dashboard insight terbaru
 - /digest = tampilkan artifact digest terbaru
