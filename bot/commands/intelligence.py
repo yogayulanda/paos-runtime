@@ -524,6 +524,7 @@ def _step_status_text(step_results):
     lines = ["⏳ Update berjalan..."]
     labels = {
         "rss": "RSS",
+        "threads_keyword": "Threads Keyword",
         "candidate": "Candidate",
         "signal": "Signal",
         "digest": "Digest",
@@ -559,6 +560,7 @@ async def handle_status(update):
     daily_status = _read_json(runtime_path / ".runtime" / "runs" / "daily-intelligence" / "latest.json")
     rss_status = _read_json(runtime_path / ".runtime" / "runs" / "rss-collector" / "latest.json")
     threads_status = _read_json(runtime_path / ".runtime" / "runs" / "threads-account" / "latest.json")
+    threads_keyword_status = _read_json(runtime_path / ".runtime" / "runs" / "threads-keyword" / "latest.json")
     digest_status = _read_json(runtime_path / ".runtime" / "runs" / "digest" / "latest.json")
     insight_status = _read_json(runtime_path / ".runtime" / "runs" / "insights" / "latest.json")
 
@@ -593,6 +595,11 @@ async def handle_status(update):
             f"- status: {(threads_status or {}).get('status', 'belum ada data')}",
             f"- succeeded/empty/failed: {threads_diag.get('accounts_succeeded', '-')}/{threads_diag.get('accounts_empty', '-')}/{threads_diag.get('accounts_failed', '-')}",
             f"- items_collected: {(threads_status or {}).get('items_collected', threads_diag.get('items_collected', '-'))}",
+            "",
+            "Threads Keyword",
+            f"- status: {(threads_keyword_status or {}).get('status', 'belum ada data')}",
+            f"- queries_processed: {(threads_keyword_status or {}).get('queries_processed', '-')}",
+            f"- items_collected: {(threads_keyword_status or {}).get('items_collected', '-')}",
             "",
             "Digest",
             f"- latest: {str(digest_path) if digest_path else 'belum ada data'}",

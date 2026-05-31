@@ -1,6 +1,7 @@
 import argparse
 import os
 import shutil
+import time
 from pathlib import Path
 
 import yaml
@@ -38,6 +39,12 @@ def parse_args():
         "--headless",
         action="store_true",
         help="Launch the login browser in headless mode.",
+    )
+    login_parser.add_argument(
+        "--wait-timeout-seconds",
+        type=int,
+        default=600,
+        help="Maximum wait time for authenticated session detection.",
     )
 
     check_parser = subparsers.add_parser("check")
@@ -377,7 +384,7 @@ def save_login_after_enter_artifacts(page):
     return state, artifacts
 
 
-def login(headless=False):
+def login(headless=False, wait_timeout_seconds=600):
     try:
         from playwright.sync_api import sync_playwright
     except ModuleNotFoundError:
@@ -388,6 +395,9 @@ def login(headless=False):
             "2. python -m playwright install chromium"
         )
 
+    deadline = time.time() + max(60, int(wait_timeout_seconds or 600))
+    result = None
+
     with sync_playwright() as playwright:
         context = launch_persistent_context(playwright, headless=headless)
         page = context.pages[0] if context.pages else context.new_page()
@@ -396,11 +406,19 @@ def login(headless=False):
             wait_until="domcontentloaded",
             timeout=30000,
         )
-        print("Login manually in the opened browser. Complete 2FA/captcha if requested.")
-        print(
-            "After you can see your logged-in Threads account, return here and press Enter."
-        )
-        input()
+        print("Login dan isi OTP di browser ini. Script akan menunggu sampai session authenticated.")
+        print(f"wait_timeout_seconds={max(60, int(wait_timeout_seconds or 600))}")
+        while time.time() < deadline:
+            page.wait_for_timeout(5000)
+            result = check_session_state(headless=True, debug=False)
+            if result["session_status"] == "authenticated":
+                break
+            remaining = int(max(0, deadline - time.time()))
+            print(
+                f"session_status={result['session_status']} "
+                f"reason={result.get('reason') or '-'} "
+                f"remaining_seconds={remaining}"
+            )
         state, artifacts = save_login_after_enter_artifacts(page)
         print(f"current_url={state['current_url']}")
         print(f"title={state['title']}")
@@ -411,7 +429,7 @@ def login(headless=False):
         context.close()
 
     print(f"profile_saved={THREADS_BROWSER_PROFILE_DIR}")
-    result = check_session_state(headless=True, debug=True)
+    result = result or check_session_state(headless=True, debug=True)
     print_check_result(result)
     if result["session_status"] != "authenticated":
         print("warning=login_not_verified")
@@ -453,7 +471,7 @@ def main():
     args = parse_args()
 
     if args.command == "login":
-        login(headless=args.headless)
+        login(headless=args.headless, wait_timeout_seconds=args.wait_timeout_seconds)
         return
 
     if args.command == "check":

@@ -28,7 +28,7 @@ def candidate_paths_for_family(family, date, category=None):
         return []
 
     family_paths = {
-        "threads": [base / "account"],
+        "threads": [base / "account", base / "keyword"],
         "rss": [base / "feed"],
         "github": [base, base / "github"],
         "linkedin": [base, base / "linkedin"],

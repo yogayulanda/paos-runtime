@@ -83,7 +83,6 @@ check_file "$ROOT/requirements.txt" "requirements.txt"
 check_file "$ROOT/runtime/intelligence/config.yaml" "runtime/intelligence/config.yaml"
 check_file "$ROOT/runtime/intelligence/sources/rss.yaml" "runtime/intelligence/sources/rss.yaml"
 check_file "$ROOT/runtime/intelligence/sources/threads.yaml" "runtime/intelligence/sources/threads.yaml"
-check_file "$ROOT/runtime/intelligence/sources/keyword.yaml" "runtime/intelligence/sources/keyword.yaml"
 
 echo
 echo "== Directories =="

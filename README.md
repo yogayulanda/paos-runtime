@@ -145,7 +145,6 @@ The main runtime configuration lives in:
 - `runtime/intelligence/config.yaml`
 - `runtime/intelligence/sources/rss.yaml`
 - `runtime/intelligence/sources/threads.yaml`
-- `runtime/intelligence/sources/keyword.yaml`
 
 Current runtime environment variables:
 

@@ -10,6 +10,18 @@ categories:
         reason: "Official OpenAI product and research updates"
         limit: 5
 
+      - name: "deepmind_blog"
+        url: "https://deepmind.google/blog/rss.xml"
+        enabled: true
+        reason: "Official DeepMind updates on model, research, and deployment direction"
+        limit: 4
+
+      - name: "google_research"
+        url: "https://research.google/blog/rss/"
+        enabled: true
+        reason: "Official Google Research engineering and model work with practical relevance"
+        limit: 3
+
       - name: "interconnects"
         url: "https://www.interconnects.ai/feed"
         enabled: true

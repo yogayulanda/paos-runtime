@@ -3,52 +3,59 @@ mode: public
 
 categories:
   ai:
+    keywords:
+      - "Claude Code release"
+      - "Codex CLI update"
+      - "Model Context Protocol MCP"
+      - "agent harness"
+      - "LLM eval harness"
+      - "context engineering repo"
     accounts:
       - username: "claudeai"
         source_name: "claudeai"
         enabled: true
         collection_mode: authenticated
         reason: "Anthropic updates"
-        limit: 10
+        limit: 6
 
       - username: "chatgpt"
         source_name: "chatgpt"
         enabled: true
         collection_mode: authenticated
         reason: "OpenAI updates"
-        limit: 10
+        limit: 6
 
       - username: "chatgptricks"
         source_name: "chatgptricks"
         enabled: true
         collection_mode: authenticated
         reason: "Prompting and practical AI usage"
-        limit: 10
+        limit: 6
 
       - username: "boris_cherny"
         source_name: "boris_cherny"
         enabled: true
         collection_mode: authenticated
         reason: "AI engineering"
-        limit: 10
+        limit: 6
 
       - username: "obrajesse"
         source_name: "obrajesse"
         enabled: true
         collection_mode: authenticated
         reason: "AI builders and agents"
-        limit: 10
+        limit: 6
 
       - username: "yogayulanda"
         source_name: "yogayulanda"
         enabled: true
         collection_mode: authenticated
         reason: "AI engineering and agent workflow signal"
-        limit: 10
+        limit: 6
 
   career:
     accounts: []
 
 limits:
-  default_per_account: 10
-  default_per_keyword: 10
+  default_per_account: 6
+  default_per_keyword: 4

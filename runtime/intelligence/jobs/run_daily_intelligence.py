@@ -121,6 +121,20 @@ def main():
             None,
         ),
         (
+            "threads_keyword",
+            [
+                sys.executable,
+                str(INTELLIGENCE_DIR / "jobs" / "run_threads_keyword.py"),
+                "--category",
+                args.category,
+                "--timeout-seconds",
+                "120",
+                "--limit",
+                "4",
+            ],
+            None,
+        ),
+        (
             "candidate",
             [
                 sys.executable,

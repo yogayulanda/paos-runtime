@@ -28,6 +28,7 @@ Source families follow these official categories:
 intelligence/
 ├── raw/
 │   ├── threads/YYYY-MM-DD/account/<category>.jsonl
+│   ├── threads/YYYY-MM-DD/keyword/<category>.jsonl
 │   └── rss/YYYY-MM-DD/feed/<category>.jsonl
 ├── candidates/YYYY-MM-DD/<category>.jsonl
 ├── signals/YYYY-MM-DD/<category>.jsonl
@@ -48,6 +49,8 @@ Commands:
 ```bash
 venv/bin/python runtime/intelligence/threads_auth.py login
 venv/bin/python runtime/intelligence/threads_auth.py check
+venv/bin/python runtime/intelligence/jobs/run_threads_keyword.py --category ai
 ```
 
 `check` verifies session status with expected profile evidence + auth-cookie indicators.
+`login` opens the same persistent browser profile used by collectors and waits until session becomes authenticated.

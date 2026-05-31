@@ -381,7 +381,7 @@ def detect_source_status(signals):
                 linkedin_active = True
             if any(token in f"{platform} {source_type} {source_name} {url}" for token in ("job", "lowongan", "careers", "greenhouse", "lever")):
                 jobs_active = True
-    return {
+    inferred = {
         "threads_account": "active" if threads_account_active else "inactive",
         "threads_keyword": "active" if threads_keyword_active else "inactive",
         "rss_feed": "active" if rss_feed_active else "inactive",
@@ -389,6 +389,49 @@ def detect_source_status(signals):
         "linkedin": "active" if linkedin_active else "inactive",
         "jobs": "active" if jobs_active else "inactive",
     }
+    return _merge_runtime_source_status(inferred)
+
+
+def _read_json(path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _enabled_sources_for_category(category="ai"):
+    try:
+        payload = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return set()
+    categories = ((payload.get("intelligence") or {}).get("categories") or {})
+    details = (categories.get(category) or {})
+    enabled_sources = details.get("enabled_sources") or []
+    if not isinstance(enabled_sources, list):
+        return set()
+    return {compact_text(value).lower() for value in enabled_sources if compact_text(value)}
+
+
+def _runtime_job_is_active(job_name):
+    status = _read_json(ROOT / ".runtime" / "runs" / job_name / "latest.json") or {}
+    value = compact_text(status.get("status")).lower()
+    return value in {"success", "success_with_warnings"}
+
+
+def _merge_runtime_source_status(source_status, category="ai"):
+    merged = dict(source_status or {})
+    enabled_sources = _enabled_sources_for_category(category=category)
+
+    if "threads" in enabled_sources and _runtime_job_is_active("threads-account"):
+        merged["threads_account"] = "active"
+    if "keyword" in enabled_sources and _runtime_job_is_active("threads-keyword"):
+        merged["threads_keyword"] = "active"
+    if "rss" in enabled_sources and _runtime_job_is_active("rss-collector"):
+        merged["rss_feed"] = "active"
+
+    return merged
 
 
 def build_source_coverage(source_status):
