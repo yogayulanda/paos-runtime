@@ -74,6 +74,8 @@ def load_assistant_config() -> AssistantConfig:
             )
         )
     )
+    mnemosyne_endpoint = str((memory.get("mnemosyne") or {}).get("endpoint") or "").strip() or None
+    mnemosyne_timeout_seconds = float((memory.get("mnemosyne") or {}).get("timeout_seconds") or 2.0)
 
     repo_sections_raw = context.get("repo_sections") or []
     if not isinstance(repo_sections_raw, list) or not repo_sections_raw:
@@ -123,6 +125,8 @@ def load_assistant_config() -> AssistantConfig:
             fallback_provider=fallback_provider,
             local_path=resolve_path(local_path),
             mnemosyne_path=resolve_path(mnemosyne_path),
+            mnemosyne_endpoint=mnemosyne_endpoint,
+            mnemosyne_timeout_seconds=mnemosyne_timeout_seconds,
         ),
         context=AssistantContextConfig(
             repo_sections=repo_sections,

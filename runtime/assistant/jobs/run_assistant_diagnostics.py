@@ -44,6 +44,22 @@ def main() -> None:
             "checks": [],
             "warnings": [],
             "errors": [str(exc)],
+            "context_consumption": {
+                "status": "failed",
+                "command_path": "runtime/assistant/jobs/print_assistant_context.py",
+                "command_exists": False,
+                "contract_path": "runtime/assistant/contracts/context-consumption.md",
+                "contract_exists": False,
+                "latest_context_path": None,
+                "latest_context_exists": False,
+                "latest_context_date": None,
+                "json_parseable": False,
+                "supported_sections": ["all", "profile", "memory", "runtime", "intelligence"],
+                "supported_formats": ["markdown", "json"],
+                "default_max_chars": 12000,
+                "warnings": [],
+                "errors": [str(exc)],
+            },
             "resolved_artifacts": {
                 "digest": {
                     "path": None,

@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+import json
 
 from assistant.artifacts import resolve_artifacts
 from assistant.config import CONFIG_PATH, load_assistant_config
@@ -10,6 +11,11 @@ from assistant.memory import load_memory_provider
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = ROOT / ".runtime" / "runs"
+CONSUMPTION_COMMAND_PATH = ROOT / "runtime" / "assistant" / "jobs" / "print_assistant_context.py"
+CONSUMPTION_CONTRACT_PATH = ROOT / "runtime" / "assistant" / "contracts" / "context-consumption.md"
+CONSUMPTION_SUPPORTED_SECTIONS = ["all", "profile", "memory", "runtime", "intelligence"]
+CONSUMPTION_SUPPORTED_FORMATS = ["markdown", "json"]
+CONSUMPTION_DEFAULT_MAX_CHARS = 12000
 
 
 @dataclass(frozen=True)
@@ -30,6 +36,61 @@ def _warn(name: str, message: str, required: bool = False) -> DiagnosticCheck:
 
 def _error(name: str, message: str, required: bool = True) -> DiagnosticCheck:
     return DiagnosticCheck(name=name, status="error", message=message, required=required)
+
+
+def _context_consumption_diagnostics() -> dict:
+    warnings: list[str] = []
+    errors: list[str] = []
+
+    command_exists = CONSUMPTION_COMMAND_PATH.exists() and CONSUMPTION_COMMAND_PATH.is_file()
+    contract_exists = CONSUMPTION_CONTRACT_PATH.exists() and CONSUMPTION_CONTRACT_PATH.is_file()
+
+    latest_context = resolve_latest_assistant_context()
+    latest_json_path = latest_context.json.path
+    latest_json_exists = latest_context.json.exists
+    latest_context_date = latest_context.json.date or latest_context.markdown.date
+    json_parseable = bool(latest_context.json.parseable) if latest_json_exists else False
+
+    if not command_exists:
+        errors.append(f"missing consumption command: {CONSUMPTION_COMMAND_PATH}")
+    if not contract_exists:
+        errors.append(f"missing context consumption contract: {CONSUMPTION_CONTRACT_PATH}")
+
+    if not latest_json_exists:
+        warnings.append("latest assistant context JSON artifact is missing")
+    elif not json_parseable:
+        warnings.append("latest assistant context JSON artifact is not parseable")
+    else:
+        try:
+            _ = json.loads(Path(latest_json_path).read_text(encoding="utf-8"))
+        except Exception as exc:
+            json_parseable = False
+            warnings.append(f"latest assistant context JSON parse failure: {exc}")
+
+    warnings.extend(latest_context.warnings)
+
+    status = "success"
+    if errors:
+        status = "failed"
+    elif warnings:
+        status = "warning"
+
+    return {
+        "status": status,
+        "command_path": str(CONSUMPTION_COMMAND_PATH),
+        "command_exists": command_exists,
+        "contract_path": str(CONSUMPTION_CONTRACT_PATH),
+        "contract_exists": contract_exists,
+        "latest_context_path": latest_json_path,
+        "latest_context_exists": latest_json_exists,
+        "latest_context_date": latest_context_date,
+        "json_parseable": json_parseable,
+        "supported_sections": CONSUMPTION_SUPPORTED_SECTIONS,
+        "supported_formats": CONSUMPTION_SUPPORTED_FORMATS,
+        "default_max_chars": CONSUMPTION_DEFAULT_MAX_CHARS,
+        "warnings": warnings,
+        "errors": errors,
+    }
 
 
 def run_diagnostics(category: str) -> dict:
@@ -98,6 +159,11 @@ def run_diagnostics(category: str) -> dict:
         warnings.append(f"assistant_context_resolution: {msg}")
 
     warnings.extend(assistant_context.warnings)
+    context_consumption = _context_consumption_diagnostics()
+    if context_consumption["status"] == "failed":
+        errors.extend([f"context_consumption: {item}" for item in context_consumption["errors"]])
+    elif context_consumption["status"] == "warning":
+        warnings.extend([f"context_consumption: {item}" for item in context_consumption["warnings"]])
 
     memory_selection = load_memory_provider()
     configured_health = memory_selection.configured_health
@@ -156,5 +222,6 @@ def run_diagnostics(category: str) -> dict:
         "errors": errors,
         "memory_provider": memory_selection.to_dict(),
         "assistant_context": assistant_context.to_dict(),
+        "context_consumption": context_consumption,
         "resolved_artifacts": artifacts.to_dict(),
     }

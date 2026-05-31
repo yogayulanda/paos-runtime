@@ -32,7 +32,11 @@ def _build_provider(name: str, config) -> MemoryProvider | None:
     if name == "local":
         return LocalMemoryProvider(config.memory.local_path)
     if name == "mnemosyne":
-        return MnemosyneMemoryProvider(config.memory.mnemosyne_path)
+        return MnemosyneMemoryProvider(
+            config.memory.mnemosyne_path,
+            endpoint=config.memory.mnemosyne_endpoint,
+            timeout_seconds=config.memory.mnemosyne_timeout_seconds,
+        )
     return None
 
 
@@ -94,7 +98,9 @@ def load_memory_provider():
         configured_provider=config.memory.provider,
         active_provider=config.memory.fallback_provider,
         fallback_used=True,
-        attempted_providers=[config.memory.provider, config.memory.fallback_provider, "local"],
+        attempted_providers=list(
+            dict.fromkeys([config.memory.provider, config.memory.fallback_provider, "local"])
+        ),
         provider=configured or fallback or local,  # type: ignore[arg-type]
         configured_health=configured_health,
         active_health=fallback_health,

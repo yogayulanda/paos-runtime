@@ -7,6 +7,8 @@ assistant:
       path: runtime/assistant/memory/local.jsonl
     mnemosyne:
       path: runtime/assistant/memory/mnemosyne.jsonl
+      endpoint:
+      timeout_seconds: 2.0
   context:
     max_chars_per_file: 2400
     max_artifact_excerpt_chars: 1600

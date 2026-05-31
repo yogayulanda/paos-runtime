@@ -22,6 +22,8 @@ class AssistantMemoryConfig:
     fallback_provider: str
     local_path: Path
     mnemosyne_path: Path
+    mnemosyne_endpoint: str | None
+    mnemosyne_timeout_seconds: float
 
 
 @dataclass(frozen=True)
