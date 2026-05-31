@@ -24,6 +24,14 @@ class AssistantMemoryConfig:
     mnemosyne_path: Path
     mnemosyne_endpoint: str | None
     mnemosyne_timeout_seconds: float
+    mnemosyne_adapter_mode: str
+    mnemosyne_data_dir: Path
+    mnemosyne_bank: str
+    mnemosyne_session_id: str
+    mnemosyne_author_id: str | None
+    mnemosyne_author_type: str | None
+    mnemosyne_channel_id: str | None
+    mnemosyne_strict_healthcheck: bool
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
 # Memory Provider Contract
 
-Purpose: define the assistant memory boundary for Phase 1.
+Purpose: define the assistant memory boundary for Phase 3C.
 
 ## Interface
 
@@ -19,7 +19,9 @@ Purpose: define the assistant memory boundary for Phase 1.
 ## Providers
 
 - `local` is the default JSONL-backed fallback and lives at `runtime/assistant/memory/local.jsonl` unless configured otherwise.
-- `mnemosyne` is an MVP adapter behind the same interface. It requires configured endpoint reachability and uses temporary JSONL bridge storage at `runtime/assistant/memory/mnemosyne.jsonl` unless configured otherwise.
+- `mnemosyne` is a local-only SDK adapter behind the same interface.
+  - It uses `mnemosyne-memory` Python SDK and local data directory configuration.
+  - It does not expose or require direct REST, MCP SSE, or public network access.
 
 ## Selection rules
 
@@ -31,7 +33,16 @@ Purpose: define the assistant memory boundary for Phase 1.
 ## Behavior notes
 
 - Missing local JSONL files are treated as empty storage, not as fatal errors.
-- Missing/invalid/unreachable Mnemosyne endpoint marks provider unavailable and triggers fallback selection when configured.
+- Missing Mnemosyne package or SDK initialization failures mark provider unavailable and trigger fallback selection when configured.
 - `recall()` returns the newest matching entries first.
 - Empty query text returns latest items.
 - `write()` appends JSONL records with `id`, `content`, `scope`, `created_at`, `source`, and `metadata`.
+- Mnemosyne healthcheck is SDK-focused and may optionally run a strict lightweight remember/recall probe when enabled.
+- Mnemosyne `backup`/`verify` commands are operational tools and not used as provider health gates.
+
+## Out of scope
+
+- Direct Mnemosyne REST integration.
+- Direct Mnemosyne MCP SSE integration.
+- Public Mnemosyne endpoint exposure.
+- Any MCP tool bypassing `MemoryProvider`.

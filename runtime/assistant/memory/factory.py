@@ -34,6 +34,14 @@ def _build_provider(name: str, config) -> MemoryProvider | None:
     if name == "mnemosyne":
         return MnemosyneMemoryProvider(
             config.memory.mnemosyne_path,
+            data_dir=config.memory.mnemosyne_data_dir,
+            adapter_mode=config.memory.mnemosyne_adapter_mode,
+            bank=config.memory.mnemosyne_bank,
+            session_id=config.memory.mnemosyne_session_id,
+            author_id=config.memory.mnemosyne_author_id,
+            author_type=config.memory.mnemosyne_author_type,
+            channel_id=config.memory.mnemosyne_channel_id,
+            strict_healthcheck=config.memory.mnemosyne_strict_healthcheck,
             endpoint=config.memory.mnemosyne_endpoint,
             timeout_seconds=config.memory.mnemosyne_timeout_seconds,
         )

@@ -74,8 +74,43 @@ def load_assistant_config() -> AssistantConfig:
             )
         )
     )
+    mnemosyne_data_dir = Path(
+        str(
+            (
+                (memory.get("mnemosyne") or {}).get("data_dir")
+                or "runtime/assistant/memory/mnemosyne-data"
+            )
+        )
+    )
     mnemosyne_endpoint = str((memory.get("mnemosyne") or {}).get("endpoint") or "").strip() or None
     mnemosyne_timeout_seconds = float((memory.get("mnemosyne") or {}).get("timeout_seconds") or 2.0)
+    mnemosyne_adapter_mode = str((memory.get("mnemosyne") or {}).get("adapter_mode") or "sdk").strip() or "sdk"
+    mnemosyne_bank = str((memory.get("mnemosyne") or {}).get("bank") or "paos").strip() or "paos"
+    mnemosyne_session_id = (
+        str((memory.get("mnemosyne") or {}).get("session_id") or "paos-assistant").strip()
+        or "paos-assistant"
+    )
+    mnemosyne_author_id = (
+        str((memory.get("mnemosyne") or {}).get("author_id") or "").strip() or None
+    )
+    mnemosyne_author_type = (
+        str((memory.get("mnemosyne") or {}).get("author_type") or "").strip() or None
+    )
+    mnemosyne_channel_id = (
+        str((memory.get("mnemosyne") or {}).get("channel_id") or "").strip() or None
+    )
+    strict_raw = (memory.get("mnemosyne") or {}).get("strict_healthcheck")
+    if isinstance(strict_raw, bool):
+        mnemosyne_strict_healthcheck = strict_raw
+    elif strict_raw is None:
+        mnemosyne_strict_healthcheck = False
+    else:
+        mnemosyne_strict_healthcheck = str(strict_raw).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
     repo_sections_raw = context.get("repo_sections") or []
     if not isinstance(repo_sections_raw, list) or not repo_sections_raw:
@@ -127,6 +162,14 @@ def load_assistant_config() -> AssistantConfig:
             mnemosyne_path=resolve_path(mnemosyne_path),
             mnemosyne_endpoint=mnemosyne_endpoint,
             mnemosyne_timeout_seconds=mnemosyne_timeout_seconds,
+            mnemosyne_adapter_mode=mnemosyne_adapter_mode,
+            mnemosyne_data_dir=resolve_path(mnemosyne_data_dir),
+            mnemosyne_bank=mnemosyne_bank,
+            mnemosyne_session_id=mnemosyne_session_id,
+            mnemosyne_author_id=mnemosyne_author_id,
+            mnemosyne_author_type=mnemosyne_author_type,
+            mnemosyne_channel_id=mnemosyne_channel_id,
+            mnemosyne_strict_healthcheck=mnemosyne_strict_healthcheck,
         ),
         context=AssistantContextConfig(
             repo_sections=repo_sections,

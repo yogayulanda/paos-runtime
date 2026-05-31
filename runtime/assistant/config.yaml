@@ -7,6 +7,14 @@ assistant:
       path: runtime/assistant/memory/local.jsonl
     mnemosyne:
       path: runtime/assistant/memory/mnemosyne.jsonl
+      data_dir: runtime/assistant/memory/mnemosyne-data
+      adapter_mode: sdk
+      bank: paos
+      session_id: paos-assistant
+      author_id: paos
+      author_type: agent
+      channel_id: paos-assistant
+      strict_healthcheck: false
       endpoint:
       timeout_seconds: 2.0
   context:
