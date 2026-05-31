@@ -1066,21 +1066,52 @@ def _build_handoff_message(target="generic"):
     return "\n".join(lines)[:MAX_TELEGRAM]
 
 
-def _build_promotion_message():
+def _build_promotion_suggestions():
     brief_payload, _, context_payload = _resolve_assistant_payloads()
     decisions, blockers, next_actions, recent_progress = _parse_context_payload(context_payload)
 
     suggestions = []
     if decisions:
-        suggestions.append(("core/current-state.md", "Decision terbaru berdampak lintas sesi."))
+        suggestions.append(
+            {"path": "core/current-state.md", "reason": "Decision terbaru berdampak lintas sesi."}
+        )
     if recent_progress:
-        suggestions.append(("domains/daily/notes.md", "Progress harian bisa hilang jika tidak dipromosikan."))
+        suggestions.append(
+            {"path": "domains/daily/notes.md", "reason": "Progress harian bisa hilang jika tidak dipromosikan."}
+        )
     if next_actions:
-        suggestions.append(("domains/work/current-project.md", "Next actions siap dijadikan durable plan."))
+        suggestions.append(
+            {"path": "domains/work/current-project.md", "reason": "Next actions siap dijadikan durable plan."}
+        )
     if blockers:
-        suggestions.append(("domains/career/action-plan/next-actions.md", "Blocker butuh tindak lanjut terstruktur."))
+        suggestions.append(
+            {
+                "path": "domains/career/action-plan/next-actions.md",
+                "reason": "Blocker butuh tindak lanjut terstruktur.",
+            }
+        )
     if _compact(brief_payload.get("focus_today")):
-        suggestions.append(("domains/branding/content-topics/main-topics.md", "Fokus bisa jadi tema berulang."))
+        suggestions.append(
+            {
+                "path": "domains/branding/content-topics/main-topics.md",
+                "reason": "Fokus bisa jadi tema berulang.",
+            }
+        )
+    return {
+        "suggestions": suggestions[:5],
+        "sections": {
+            "decisions": decisions[:3],
+            "blockers": blockers[:3],
+            "next_actions": next_actions[:3],
+            "recent_progress": recent_progress[:3],
+            "focus_today": _compact(brief_payload.get("focus_today")),
+        },
+    }
+
+
+def _build_promotion_message():
+    suggestion_payload = _build_promotion_suggestions()
+    suggestions = suggestion_payload.get("suggestions") or []
 
     lines = [
         "Promote Memory Suggestion",
@@ -1088,8 +1119,8 @@ def _build_promotion_message():
         "Suggested Durable Updates",
     ]
     if suggestions:
-        for path, reason in suggestions[:5]:
-            lines.append(f"- {path}: {reason}")
+        for item in suggestions:
+            lines.append(f"- {item.get('path')}: {item.get('reason')}")
     else:
         lines.append("- Belum ada kandidat kuat dari artifact terbaru.")
 
@@ -1116,6 +1147,38 @@ def _build_promotion_message():
             "- Suggest-only: no write performed.",
         ]
     )
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
+def _load_controlled_write_runtime():
+    runtime_module_root = _runtime_path() / "runtime"
+    if str(runtime_module_root) not in sys.path:
+        sys.path.insert(0, str(runtime_module_root))
+    from assistant.write import apply_latest_draft, build_preview, generate_draft  # type: ignore
+
+    return generate_draft, build_preview, apply_latest_draft
+
+
+def _render_controlled_write_preview(preview):
+    if not preview.get("ok"):
+        warnings = preview.get("warnings") or ["preview unavailable"]
+        return "\n".join(["Context Update Preview", "", "Warnings", *[f"- {_compact(x)}" for x in warnings]])[
+            :MAX_TELEGRAM
+        ]
+    lines = [
+        "Context Update Preview",
+        "",
+        f"Draft: {_compact(preview.get('draft_path'))}",
+        "Targets",
+    ]
+    targets = preview.get("target_files") or []
+    lines.extend([f"- {target}" for target in targets] or ["- Belum ada target."])
+    lines.extend(["", "Proposed Additions"])
+    for item in preview.get("items") or []:
+        lines.append(f"- {item.get('target_path')}: {item.get('addition_preview')}")
+    warnings = preview.get("warnings") or []
+    if warnings:
+        lines.extend(["", "Warnings", *[f"- {_compact(x)}" for x in warnings[:6]]])
     return "\n".join(lines)[:MAX_TELEGRAM]
 
 
@@ -1185,3 +1248,67 @@ async def handle_promote_memory(update):
 
 async def handle_insight_relevance(update):
     await update.message.reply_text(_build_insight_relevance_message())
+
+
+async def handle_draft_context_update(update):
+    generate_draft, _, _ = _load_controlled_write_runtime()
+    source = _build_promotion_suggestions()
+    result = generate_draft(source.get("suggestions") or [], source.get("sections") or {})
+    payload = result.get("payload") or {}
+    warnings = payload.get("warnings") or []
+    entries = payload.get("entries") or []
+    lines = [
+        "Context Update Draft",
+        "",
+        f"Draft path: {_compact(result.get('draft_path'))}",
+        f"Entries: {len(entries)}",
+    ]
+    if entries:
+        lines.extend(["Targets", *[f"- {item.get('target_path')}" for item in entries]])
+    if warnings:
+        lines.extend(["Warnings", *[f"- {_compact(x)}" for x in warnings[:6]]])
+    lines.extend(["", "Next", "- Run /preview-context-update", "- Apply only with /apply-context-update CONFIRM"])
+    await update.message.reply_text("\n".join(lines)[:MAX_TELEGRAM])
+
+
+async def handle_preview_context_update(update):
+    _, build_preview, _ = _load_controlled_write_runtime()
+    preview = build_preview()
+    await update.message.reply_text(_render_controlled_write_preview(preview))
+
+
+async def handle_apply_context_update(update):
+    _, _, apply_latest_draft = _load_controlled_write_runtime()
+    text = _compact(update.message.text)
+    token = text.split(" ", 1)[1] if " " in text else ""
+    result = apply_latest_draft(token)
+    if not result.get("ok"):
+        warnings = result.get("warnings") or ["apply failed"]
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    "Apply Context Update",
+                    "",
+                    "No changes applied.",
+                    *[f"- {_compact(x)}" for x in warnings[:6]],
+                    "",
+                    "Usage: /apply-context-update CONFIRM",
+                ]
+            )[:MAX_TELEGRAM]
+        )
+        return
+    lines = [
+        "Apply Context Update",
+        "",
+        f"Applied: {'yes' if result.get('applied') else 'no'}",
+        "Applied targets",
+    ]
+    lines.extend([f"- {x}" for x in (result.get("applied_targets") or [])] or ["- none"])
+    blocked = result.get("blocked_targets") or []
+    if blocked:
+        lines.extend(["Blocked targets", *[f"- {item.get('target_path')}: {item.get('reason')}" for item in blocked]])
+    warnings = result.get("warnings") or []
+    if warnings:
+        lines.extend(["Warnings", *[f"- {_compact(x)}" for x in warnings[:6]]])
+    lines.extend(["Audit", f"- {_compact(result.get('audit_path'))}"])
+    await update.message.reply_text("\n".join(lines)[:MAX_TELEGRAM])

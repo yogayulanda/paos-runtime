@@ -9,6 +9,9 @@ Assistant OS:
 /memory - Read-only memory surface (progress, decisions, blockers, next)
 /handoff - Generate handoff summary (use /handoff codex or /handoff claude)
 /promote-memory - Suggest durable memory promotions (no write)
+/draft-context-update - Build controlled durable-context draft (no direct write)
+/preview-context-update - Preview latest controlled write draft
+/apply-context-update CONFIRM - Apply latest draft with explicit confirmation only
 
 Intelligence:
 /today - Ringkasan harian assistant + opportunities
@@ -40,6 +43,9 @@ Command semantics:
 - /handoff codex = handoff tuned for Codex continuation
 - /handoff claude = handoff tuned for Claude continuation
 - /promote-memory = suggest-only durable context promotion targets
+- /draft-context-update = create draft artifact only (no durable file mutation)
+- /preview-context-update = compact target/addition/risk preview from latest draft
+- /apply-context-update CONFIRM = apply latest draft to allowlisted files only
 - /update = jalankan pipeline harian + tampilkan dashboard
 - /insight = tampilkan dashboard insight terbaru
 - /digest = tampilkan artifact digest terbaru
