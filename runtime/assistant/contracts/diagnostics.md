@@ -9,6 +9,7 @@ Purpose: baseline health check for Phase 1 assistant foundation.
 - Latest insight artifact resolution executes.
 - Runtime status directory readability check executes.
 - Latest assistant context artifact resolution executes.
+- Latest assistant brief artifact resolution executes.
 
 ## Status semantics
 
@@ -27,4 +28,16 @@ Diagnostics writes `.runtime/runs/assistant/latest.json` with:
 - `warnings`
 - `errors`
 - `assistant_context`
+- `assistant_brief`
 - `resolved_artifacts`
+
+`assistant_brief` includes markdown/json metadata:
+
+- `path`
+- `exists`
+- `date`
+- `modified_at`
+- `size_bytes`
+- `empty`
+- `parseable` (JSON artifact)
+- warnings for missing/stale/empty/parse-failure

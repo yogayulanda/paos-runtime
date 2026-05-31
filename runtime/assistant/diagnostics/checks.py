@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 
 from assistant.artifacts import resolve_artifacts
+from assistant.brief import resolve_latest_assistant_brief
 from assistant.config import CONFIG_PATH, load_assistant_config
 from assistant.context import resolve_latest_assistant_context
 from assistant.memory import load_memory_provider
@@ -159,6 +160,33 @@ def run_diagnostics(category: str) -> dict:
         warnings.append(f"assistant_context_resolution: {msg}")
 
     warnings.extend(assistant_context.warnings)
+
+    assistant_brief = resolve_latest_assistant_brief()
+    brief_json = assistant_brief.json
+    if assistant_brief.markdown.exists or brief_json.exists:
+        checks.append(
+            _ok(
+                "assistant_brief_resolution",
+                f"Resolved assistant brief markdown: {assistant_brief.markdown.path}; JSON: {brief_json.path}",
+                required=False,
+            )
+        )
+    else:
+        msg = "No assistant brief artifact found."
+        checks.append(_warn("assistant_brief_resolution", msg, required=False))
+        warnings.append(f"assistant_brief_resolution: {msg}")
+
+    today = datetime.now().astimezone().date().isoformat()
+    if brief_json.exists:
+        if brief_json.empty:
+            warnings.append("assistant_brief: latest JSON brief is empty")
+        if brief_json.parseable is False:
+            warnings.append("assistant_brief: latest JSON brief is not parseable")
+        if brief_json.date and brief_json.date < today:
+            warnings.append(
+                f"assistant_brief: latest brief is stale ({brief_json.date}); expected {today}"
+            )
+    warnings.extend(assistant_brief.warnings)
     context_consumption = _context_consumption_diagnostics()
     if context_consumption["status"] == "failed":
         errors.extend([f"context_consumption: {item}" for item in context_consumption["errors"]])
@@ -222,6 +250,7 @@ def run_diagnostics(category: str) -> dict:
         "errors": errors,
         "memory_provider": memory_selection.to_dict(),
         "assistant_context": assistant_context.to_dict(),
+        "assistant_brief": assistant_brief.to_dict(),
         "context_consumption": context_consumption,
         "resolved_artifacts": artifacts.to_dict(),
     }

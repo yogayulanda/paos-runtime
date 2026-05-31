@@ -111,6 +111,30 @@ Behavior:
 - Uses official context consumption command:
   - `runtime/assistant/jobs/print_assistant_context.py`
 
+## Tool: `paos_brief_get`
+
+Input:
+
+- `category` (optional)
+- `format` (`json|markdown`, default `json`)
+
+Output:
+
+- `ok`
+- `category`
+- `category_source`
+- `format`
+- `content`
+- `brief`
+- `warnings`
+- `errors`
+
+Behavior:
+
+- Reads latest assistant brief artifact from `assistant/briefs/<YYYY-MM-DD>/assistant-brief.{json|md}`.
+- Read-only operation; does not mutate memory.
+- Must not import Mnemosyne directly.
+
 ## Security constraints
 
 - SSH key auth required for remote usage.

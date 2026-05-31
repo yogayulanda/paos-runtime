@@ -6,6 +6,7 @@ from typing import Any
 
 from assistant.config import resolve_category
 from assistant.diagnostics import run_diagnostics
+from assistant.brief import resolve_latest_assistant_brief
 from assistant.memory import MemoryQuery, MemoryWrite, load_memory_provider
 
 from .schemas import (
@@ -220,6 +221,61 @@ def tool_paos_context_get(
         return _error_payload(category=category, warnings=warnings, errors=[str(exc)])
 
 
+def tool_paos_brief_get(category: str | None = None, format: str = "json") -> dict[str, Any]:
+    warnings: list[str] = []
+    errors: list[str] = []
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        out_format = str(format or "json").strip().lower()
+        if out_format not in {"json", "markdown"}:
+            raise ValueError(f"invalid format: {out_format}")
+
+        resolution = resolve_latest_assistant_brief()
+        warnings.extend([str(item) for item in resolution.warnings])
+        artifact = resolution.json if out_format == "json" else resolution.markdown
+        if not artifact.exists or not artifact.path:
+            errors.append(f"assistant brief {out_format} artifact is missing")
+            return _error_payload(
+                category=resolved_category,
+                warnings=warnings,
+                errors=errors,
+                format=out_format,
+                content=None,
+                brief=resolution.to_dict(),
+            )
+
+        path = Path(artifact.path)
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        if out_format == "json":
+            try:
+                content = json.loads(raw)
+            except Exception as exc:
+                errors.append(f"assistant brief JSON parse failure: {exc}")
+                return _error_payload(
+                    category=resolved_category,
+                    warnings=warnings,
+                    errors=errors,
+                    format=out_format,
+                    content=None,
+                    brief=resolution.to_dict(),
+                )
+        else:
+            content = raw
+
+        return {
+            "ok": True,
+            "category": resolved_category,
+            "category_source": category_source,
+            "format": out_format,
+            "content": content,
+            "brief": resolution.to_dict(),
+            "warnings": warnings,
+            "errors": errors,
+        }
+    except Exception as exc:
+        return _error_payload(category=category, warnings=warnings, errors=[str(exc)])
+
+
 def _load_fastmcp():
     try:
         from mcp.server.fastmcp import FastMCP
@@ -284,6 +340,13 @@ def create_mcp_server():
                 section=section,
                 max_chars=max_chars,
             )
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_brief_get")
+    def paos_brief_get(category: str | None = None, format: str = "json") -> dict[str, Any]:
+        try:
+            return tool_paos_brief_get(category=category, format=format)
         except Exception as exc:
             return _error_payload(errors=[f"unexpected error: {exc}"])
 
