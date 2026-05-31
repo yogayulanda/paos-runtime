@@ -357,7 +357,9 @@ def load_text_template(path):
 
 
 def detect_source_status(signals):
-    has_signals = bool(signals)
+    threads_account_active = False
+    threads_keyword_active = False
+    rss_feed_active = False
     github_active = False
     linkedin_active = False
     jobs_active = False
@@ -367,6 +369,12 @@ def detect_source_status(signals):
             source_type = compact_text(source.get("source_type")).lower()
             source_name = compact_text(source.get("source_name")).lower()
             url = compact_text(source.get("url")).lower()
+            if platform == "threads" and source_type == "account":
+                threads_account_active = True
+            if platform == "threads" and source_type == "keyword":
+                threads_keyword_active = True
+            if platform == "rss" and source_type == "feed":
+                rss_feed_active = True
             if any(token in f"{platform} {source_type} {source_name} {url}" for token in ("github", "gitlab", "bitbucket")):
                 github_active = True
             if any(token in f"{platform} {source_type} {source_name} {url}" for token in ("linkedin", "networking")):
@@ -374,7 +382,9 @@ def detect_source_status(signals):
             if any(token in f"{platform} {source_type} {source_name} {url}" for token in ("job", "lowongan", "careers", "greenhouse", "lever")):
                 jobs_active = True
     return {
-        "threads_rss": "active" if has_signals else "inactive",
+        "threads_account": "active" if threads_account_active else "inactive",
+        "threads_keyword": "active" if threads_keyword_active else "inactive",
+        "rss_feed": "active" if rss_feed_active else "inactive",
         "github": "active" if github_active else "inactive",
         "linkedin": "active" if linkedin_active else "inactive",
         "jobs": "active" if jobs_active else "inactive",
@@ -386,10 +396,12 @@ def build_source_coverage(source_status):
     inactive = []
     missing = []
     mapping = {
-        "threads_rss": "Threads/RSS",
+        "threads_account": "Threads Account",
+        "threads_keyword": "Threads Keyword",
+        "rss_feed": "RSS Feed",
         "github": "GitHub",
         "linkedin": "LinkedIn",
-        "jobs": "Jobs",
+        "jobs": "Lowongan",
     }
     for key, label in mapping.items():
         status = compact_text((source_status or {}).get(key)).lower()
@@ -399,7 +411,7 @@ def build_source_coverage(source_status):
             inactive.append(label)
         else:
             missing.append(label)
-    notes = "Threads/RSS aktif sebagai sumber utama hari ini. Source lain belum aktif atau belum ada data relevan."
+    notes = "Status source dipisah per family agar mode pengumpulan lebih jelas."
     if not active:
         notes = "Belum ada source aktif yang terdeteksi."
     return {

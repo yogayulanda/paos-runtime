@@ -48,11 +48,13 @@ C. Yang Lagi Penting
 D. Peluang untuk Kamu
 - Meaning: peluang project/content/career/networking/learning/business.
 - Jangan dipaksakan jika sinyal lemah.
+- Jika ada `content_branding`, jangan kontradiktif dengan peluang konten (hindari kalimat `Belum ada peluang konten kuat hari ini`).
 - Required item: `type`, `title`, `why_relevant`, `suggested_action`, `source_refs`.
 
 E. Bahan Konten & Branding
 - Meaning: bahan konten kuat dan siap dipakai.
 - Hanya generate jika peluang kuat.
+- Bedakan dari section peluang: ini bahan hook mentah/siap-draft, bukan daftar aksi.
 - Jangan output "Siapkan konten" atau "Tulis post tentang".
 - Required item: `angle`, `why_post`, `threads_ready`, `x_ready`, `linkedin_angle`, `source_refs`.
 - `threads_ready` harus utuh, `x_ready` harus singkat dan utuh, `linkedin_angle` harus profesional.

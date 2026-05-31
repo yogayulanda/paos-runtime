@@ -211,6 +211,38 @@ def _extract_content_preview(body):
     return first_line or "Belum ada bahan post yang cukup kuat hari ini."
 
 
+def _has_content_material(content_body):
+    body = _compact(content_body)
+    if not body:
+        return False
+    lowered = body.lower()
+    return "belum ada bahan post yang cukup kuat hari ini." not in lowered
+
+
+def _parse_source_coverage_buckets(source_coverage_body):
+    buckets = {"active": set(), "inactive": set(), "missing": set()}
+    for line in source_coverage_body.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- ") or ":" not in stripped:
+            continue
+        key, value = stripped[2:].split(":", 1)
+        key = _compact(key).lower()
+        names = [_compact(part) for part in value.split(",") if _compact(part) and _compact(part) != "-"]
+        if key in buckets:
+            buckets[key].update(names)
+    return buckets
+
+
+def _family_status(name, buckets):
+    if name in buckets["active"]:
+        return "aktif"
+    if name in buckets["inactive"]:
+        return "belum aktif"
+    if name in buckets["missing"]:
+        return "belum aktif"
+    return "belum aktif"
+
+
 def _extract_source_status(source_coverage_body, section_body, inactive_phrase, empty_phrase):
     coverage_lines = {}
     for line in source_coverage_body.splitlines():
@@ -225,7 +257,7 @@ def _extract_source_status(source_coverage_body, section_body, inactive_phrase, 
     if section_body and inactive_phrase.lower() in section_body.lower():
         return "belum aktif"
     if section_body and empty_phrase.lower() in section_body.lower():
-        return "tidak ada sinyal"
+        return "aktif"
     if active_blob:
         if "threads/rss" in active_blob:
             threads_status = "aktif"
@@ -240,7 +272,7 @@ def _extract_source_status(source_coverage_body, section_body, inactive_phrase, 
         return "belum aktif"
     if "jobs" in inactive_blob and "job" in inactive_phrase.lower():
         return "belum aktif"
-    return "aktif" if section_body else "tidak ada sinyal"
+    return "aktif" if section_body else "belum aktif"
 
 
 def _trim_preview_lines(lines, limit):
@@ -280,9 +312,17 @@ def build_paos_dashboard_payload(path, category="ai", date=None):
     signal_titles = _extract_marked_titles(signals_body)[:3]
     opportunity_preview = _extract_opportunity_preview(opportunities_body)
     content_preview = _extract_content_preview(content_body)
+    content_exists = _has_content_material(content_body)
+    if content_exists and "belum ada peluang konten kuat hari ini." in _compact(opportunity_preview.get("Konten", "")).lower():
+        opportunity_preview["Konten"] = "Ada bahan ringan untuk post pendek dari angle hari ini."
+    if not content_exists and "Konten" not in opportunity_preview:
+        opportunity_preview["Konten"] = "Belum ada peluang konten kuat hari ini."
 
+    coverage_buckets = _parse_source_coverage_buckets(source_coverage_body)
     status_source = {
-        "Threads/RSS": "aktif" if "threads/rss" in source_coverage_body.lower() and "active:" in source_coverage_body.lower() else "tidak ada sinyal",
+        "Threads Account": _family_status("Threads Account", coverage_buckets),
+        "Threads Keyword": _family_status("Threads Keyword", coverage_buckets),
+        "RSS Feed": _family_status("RSS Feed", coverage_buckets),
         "GitHub": _extract_source_status(source_coverage_body, github_body, "Belum ada sinyal GitHub karena source GitHub belum aktif.", "Source GitHub aktif, tapi belum ada repo/tool yang cukup relevan hari ini."),
         "LinkedIn": _extract_source_status(source_coverage_body, linkedin_body, "Belum ada sinyal LinkedIn karena source LinkedIn belum aktif.", "Source LinkedIn aktif, tapi belum ada peluang networking yang cukup relevan hari ini."),
         "Lowongan": _extract_source_status(source_coverage_body, jobs_body, "Belum ada sinyal lowongan karena source job belum aktif.", "Source job aktif, tapi belum ada lowongan yang cukup relevan hari ini."),
@@ -346,10 +386,12 @@ def build_main_dashboard_message(payload):
         _compact(content_preview) or "Belum ada bahan post yang cukup kuat hari ini.",
         "",
         "📡 Status Source",
-        f"- Threads/RSS: {status_source.get('Threads/RSS', 'tidak ada sinyal')}",
-        f"- GitHub: {status_source.get('GitHub', 'tidak ada sinyal')}",
-        f"- LinkedIn: {status_source.get('LinkedIn', 'tidak ada sinyal')}",
-        f"- Lowongan: {status_source.get('Lowongan', 'tidak ada sinyal')}",
+        f"- Threads Account: {status_source.get('Threads Account', 'belum aktif')}",
+        f"- Threads Keyword: {status_source.get('Threads Keyword', 'belum aktif')}",
+        f"- RSS Feed: {status_source.get('RSS Feed', 'belum aktif')}",
+        f"- GitHub: {status_source.get('GitHub', 'belum aktif')}",
+        f"- LinkedIn: {status_source.get('LinkedIn', 'belum aktif')}",
+        f"- Lowongan: {status_source.get('Lowongan', 'belum aktif')}",
         "",
         "Pilih detail di bawah.",
     ]

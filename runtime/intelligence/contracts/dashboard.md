@@ -67,6 +67,10 @@ Preview/detail rules:
 - button_label: `Peluang`
 - max_preview_items: 4
 - empty_state: `Belum ada peluang yang cukup kuat hari ini.`
+- note_semantics:
+  - `Peluang untuk Kamu` = peluang tindakan berikutnya yang actionable.
+  - Jika `Bahan Konten & Branding` ada, line `Konten` di preview gunakan framing ringan (mis. `Ada bahan ringan untuk post pendek ...`), bukan empty state.
+  - `Belum ada peluang konten kuat hari ini.` hanya dipakai jika benar-benar tidak ada bahan konten.
 
 ### 5) Bahan Konten & Branding
 - section_id: `content_branding`
@@ -204,10 +208,12 @@ Contoh:
 <best content angle / empty state>
 
 📡 Status Source
-- Threads/RSS: active/inactive/no strong signal
-- GitHub: active/inactive/no strong signal
-- LinkedIn: active/inactive/no strong signal
-- Lowongan: active/inactive/no strong signal
+- Threads Account: aktif/belum aktif
+- Threads Keyword: aktif/belum aktif
+- RSS Feed: aktif/belum aktif
+- GitHub: aktif/belum aktif
+- LinkedIn: aktif/belum aktif
+- Lowongan: aktif/belum aktif
 
 Pilih detail di bawah.
 
