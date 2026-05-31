@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -29,7 +30,10 @@ PUNCT_RE = re.compile(r"[^a-z0-9\s]")
 
 def _runtime_path():
     env = load_env()
-    return Path(env.get("PAOS_RUNTIME_PATH", "/home/ubuntu/paos/paos-runtime"))
+    configured = env.get("PAOS_RUNTIME_PATH")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[2]
 
 
 def _today_str():
@@ -855,3 +859,271 @@ async def handle_context(update):
     await update.message.reply_text(
         _render_context_message(artifacts_meta, runtime_statuses, warnings)
     )
+
+
+def _load_memory_runtime():
+    runtime_module_root = _runtime_path() / "runtime"
+    if str(runtime_module_root) not in sys.path:
+        sys.path.insert(0, str(runtime_module_root))
+    from assistant.memory import MemoryQuery, load_memory_provider  # type: ignore
+
+    return MemoryQuery, load_memory_provider
+
+
+def _format_memory_items(items, limit=3):
+    rows = []
+    for item in items[:limit]:
+        content = _compact(item.get("content") if isinstance(item, dict) else "")
+        if not content:
+            continue
+        rows.append(f"- {content[:140]}")
+    return rows
+
+
+def _parse_context_payload(context_payload):
+    decisions = []
+    blockers = []
+    next_actions = []
+    recent_progress = []
+    if not isinstance(context_payload, dict):
+        return decisions, blockers, next_actions, recent_progress
+
+    sections = context_payload.get("sections")
+    if not isinstance(sections, dict):
+        return decisions, blockers, next_actions, recent_progress
+
+    for key in ("recent_progress", "progress", "recent_updates"):
+        value = sections.get(key)
+        if isinstance(value, list):
+            recent_progress.extend([_compact(x) for x in value if _compact(x)])
+            break
+    for key in ("decisions", "key_decisions"):
+        value = sections.get(key)
+        if isinstance(value, list):
+            decisions.extend([_compact(x) for x in value if _compact(x)])
+            break
+    for key in ("blockers", "risks_or_blockers", "risks"):
+        value = sections.get(key)
+        if isinstance(value, list):
+            blockers.extend([_compact(x) for x in value if _compact(x)])
+            break
+    for key in ("next_actions", "suggested_next_actions"):
+        value = sections.get(key)
+        if isinstance(value, list):
+            next_actions.extend([_compact(x) for x in value if _compact(x)])
+            break
+
+    return decisions, blockers, next_actions, recent_progress
+
+
+def _resolve_assistant_payloads():
+    runtime_path = _runtime_path()
+    brief_payload = _read_json(
+        str(_resolve_latest_file(runtime_path / "assistant" / "briefs", "assistant-brief.json") or "")
+    ) or {}
+    opportunities_payload = _read_json(
+        str(_resolve_latest_file(runtime_path / "assistant" / "opportunities", "opportunities.json") or "")
+    ) or {}
+    context_payload = _read_json(
+        str(_resolve_latest_file(runtime_path / "assistant" / "context", "assistant-context.json") or "")
+    ) or {}
+    return brief_payload, opportunities_payload, context_payload
+
+
+def _build_memory_surface_message():
+    MemoryQuery, load_memory_provider = _load_memory_runtime()
+    provider_name = "unknown"
+    health_label = "unavailable"
+    health_note = "fallback not available"
+    active_memory = []
+    selection = None
+    memory_items = []
+    try:
+        selection = load_memory_provider()
+        provider_name = selection.active_provider
+        health = selection.active_health.to_dict()
+        health_label = "healthy" if health.get("healthy") else "unhealthy"
+        health_note = _compact(health.get("message"))
+        memory_items = [item.to_dict() for item in selection.provider.recall(MemoryQuery(text="", limit=8))]
+        active_memory = _format_memory_items(memory_items, limit=3)
+    except Exception as exc:
+        health_note = f"memory provider error: {exc}"
+
+    brief_payload, opportunities_payload, context_payload = _resolve_assistant_payloads()
+    decisions, blockers, next_actions, recent_progress = _parse_context_payload(context_payload)
+
+    if not recent_progress:
+        recent_progress = _format_memory_items(memory_items, limit=3)
+    if not decisions and memory_items:
+        decisions = _format_memory_items(memory_items, limit=2)
+    if not next_actions:
+        candidate = _compact(brief_payload.get("suggested_next_action"))
+        if candidate:
+            next_actions = [candidate]
+
+    promotion_candidates = []
+    if next_actions:
+        promotion_candidates.append("domains/work/current-project.md")
+    if decisions:
+        promotion_candidates.append("core/current-state.md")
+    if blockers:
+        promotion_candidates.append("domains/daily/notes.md")
+
+    lines = [
+        "Memory Surface",
+        "",
+        "Memory Provider",
+        f"- Active: {provider_name}",
+        f"- Health: {health_label}",
+        f"- Fallback: {'on' if selection and selection.fallback_used else 'off'}",
+        "",
+        "Health / fallback status",
+        f"- {_compact(health_note) or 'n/a'}",
+        "",
+        "Active Memory",
+        *(active_memory or ["- Belum ada memory aktif."]),
+        "",
+        "Recent Progress",
+        *([f"- {x}" for x in recent_progress[:3]] or ["- Belum ada progress terbaru."]),
+        "",
+        "Decisions",
+        *([f"- {x}" for x in decisions[:3]] or ["- Belum ada decisions terbaru."]),
+        "",
+        "Blockers",
+        *([f"- {x}" for x in blockers[:3]] or ["- Belum ada blockers."]),
+        "",
+        "Next Actions",
+        *([f"- {x}" for x in next_actions[:3]] or ["- Belum ada next actions."]),
+        "",
+        "Promotion Candidates",
+        *([f"- {x}" for x in promotion_candidates] or ["- Belum inferable dari data saat ini."]),
+    ]
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
+def _build_handoff_message(target="generic"):
+    brief_payload, opportunities_payload, context_payload = _resolve_assistant_payloads()
+    decisions, blockers, next_actions, recent_progress = _parse_context_payload(context_payload)
+    top_opps = []
+    if isinstance(opportunities_payload.get("opportunities"), list):
+        ordered = _dedupe_opportunities(opportunities_payload.get("opportunities") or [])
+        for item in ordered[:3]:
+            top_opps.append(_compact(item.get("title")))
+
+    target_label = target if target in {"codex", "claude"} else "generic"
+    files = [
+        "assistant/briefs/<latest>/assistant-brief.json",
+        "assistant/context/<latest>/assistant-context.json",
+        "assistant/opportunities/<latest>/opportunities.json",
+    ]
+    if target_label == "codex":
+        files.append("runtime/assistant/adapters/codex.md")
+    if target_label == "claude":
+        files.append("runtime/assistant/adapters/claude-code.md")
+
+    lines = [
+        f"Handoff ({target_label})",
+        "",
+        "Task summary",
+        f"- {_compact(brief_payload.get('focus_today')) or 'Lanjutkan prioritas assistant terbaru.'}",
+        "",
+        "Current state",
+        f"- Brief: {'available' if brief_payload else 'missing'}",
+        f"- Context: {'available' if context_payload else 'missing'}",
+        f"- Opportunities: {'available' if opportunities_payload else 'missing'}",
+        "",
+        "Decisions",
+        *([f"- {x}" for x in decisions[:3]] or ["- Belum ada decision yang terekam."]),
+        "",
+        "Next action",
+        *([f"- {x}" for x in next_actions[:2]] or ["- Eksekusi top opportunity terbaru."]),
+        "",
+        "Files/context to inspect",
+        *[f"- {path}" for path in files],
+        "",
+        "Validation needed",
+        "- Pastikan artifact terbaru parseable dan tidak stale.",
+        "- Verifikasi next action tidak generik sebelum eksekusi.",
+        "",
+        "Guardrails",
+        "- Read-only surface only.",
+        "- No scheduler, no free-text query, no GitHub source.",
+        "- No Hermes bridge, no controlled write, no memory write.",
+    ]
+    if top_opps:
+        lines.extend(["", "Top opportunities", *[f"- {x}" for x in top_opps if x]])
+    if blockers:
+        lines.extend(["", "Known blockers", *[f"- {x}" for x in blockers[:3]]])
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
+def _build_promotion_message():
+    brief_payload, _, context_payload = _resolve_assistant_payloads()
+    decisions, blockers, next_actions, recent_progress = _parse_context_payload(context_payload)
+
+    suggestions = []
+    if decisions:
+        suggestions.append(("core/current-state.md", "Decision terbaru berdampak lintas sesi."))
+    if recent_progress:
+        suggestions.append(("domains/daily/notes.md", "Progress harian bisa hilang jika tidak dipromosikan."))
+    if next_actions:
+        suggestions.append(("domains/work/current-project.md", "Next actions siap dijadikan durable plan."))
+    if blockers:
+        suggestions.append(("domains/career/action-plan/next-actions.md", "Blocker butuh tindak lanjut terstruktur."))
+    if _compact(brief_payload.get("focus_today")):
+        suggestions.append(("domains/branding/content-topics/main-topics.md", "Fokus bisa jadi tema berulang."))
+
+    lines = [
+        "Promote Memory Suggestion",
+        "",
+        "Suggested Durable Updates",
+    ]
+    if suggestions:
+        for path, reason in suggestions[:5]:
+            lines.append(f"- {path}: {reason}")
+    else:
+        lines.append("- Belum ada kandidat kuat dari artifact terbaru.")
+
+    lines.extend(
+        [
+            "",
+            "Target files",
+            "- core/current-state.md",
+            "- domains/daily/notes.md",
+            "- domains/work/current-project.md",
+            "- domains/career/action-plan/next-actions.md",
+            "- domains/branding/content-topics/main-topics.md",
+            "",
+            "Why this should be promoted",
+            "- Menjaga konteks durable lintas sesi assistant.",
+            "",
+            "What should NOT be promoted",
+            "- Chat noise, asumsi mentah, dan detail sementara yang belum tervalidasi.",
+            "",
+            "Confidence",
+            f"- {'medium' if suggestions else 'low'}",
+            "",
+            "Reminder",
+            "- Suggest-only: no write performed.",
+        ]
+    )
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
+async def handle_memory(update):
+    await update.message.reply_text(_build_memory_surface_message())
+
+
+async def handle_handoff(update):
+    text = _compact(update.message.text).lower()
+    if text.startswith("/handoff codex"):
+        target = "codex"
+    elif text.startswith("/handoff claude"):
+        target = "claude"
+    else:
+        target = "generic"
+    await update.message.reply_text(_build_handoff_message(target=target))
+
+
+async def handle_promote_memory(update):
+    await update.message.reply_text(_build_promotion_message())

@@ -28,6 +28,9 @@ from bot.commands.assistant_surface import handle_today
 from bot.commands.assistant_surface import handle_dashboard
 from bot.commands.assistant_surface import handle_daily
 from bot.commands.assistant_surface import handle_context
+from bot.commands.assistant_surface import handle_memory
+from bot.commands.assistant_surface import handle_handoff
+from bot.commands.assistant_surface import handle_promote_memory
 
 
 TOKEN = TELEGRAM_BOT_TOKEN
@@ -46,6 +49,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text.startswith("/context"):
         await handle_context(update)
+        return
+
+    if text.startswith("/memory"):
+        await handle_memory(update)
+        return
+
+    if text.startswith("/handoff"):
+        await handle_handoff(update)
+        return
+
+    if text.startswith("/promote-memory"):
+        await handle_promote_memory(update)
         return
 
     if text.startswith("/profile"):

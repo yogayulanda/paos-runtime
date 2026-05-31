@@ -6,6 +6,9 @@ Assistant OS:
 /dashboard - PAOS home screen (fokus, state, opportunities, actions)
 /daily - Daily action planner (priorities, defer, next action)
 /context - Context health inspector (artifact status, freshness, warnings)
+/memory - Read-only memory surface (progress, decisions, blockers, next)
+/handoff - Generate handoff summary (use /handoff codex or /handoff claude)
+/promote-memory - Suggest durable memory promotions (no write)
 
 Intelligence:
 /today - Ringkasan harian assistant + opportunities
@@ -33,6 +36,11 @@ Command semantics:
 - /dashboard = assistant OS home screen (combined view)
 - /daily = compact daily action planner
 - /context = context health and artifact freshness
+- /memory = read-only memory surface + fallback status
+- /handoff = copy-paste handoff summary for next assistant
+- /handoff codex = handoff tuned for Codex continuation
+- /handoff claude = handoff tuned for Claude continuation
+- /promote-memory = suggest-only durable context promotion targets
 - /update = jalankan pipeline harian + tampilkan dashboard
 - /insight = tampilkan dashboard insight terbaru
 - /digest = tampilkan artifact digest terbaru
