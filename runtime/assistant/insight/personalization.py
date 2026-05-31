@@ -66,10 +66,30 @@ def _parse_sections(markdown_text: str) -> dict[str, str]:
 
 
 def _top_line(body: str, default_value: str) -> str:
+    blocked_labels = {
+        "yang perlu kamu lakukan",
+        "kenapa penting",
+        "recommended action",
+        "why it matters",
+        "relevant insight",
+        "content opportunity",
+        "work / career relevance",
+        "paos / forge relevance",
+    }
+    blocked_prefixes = tuple(f"{label}:" for label in blocked_labels)
     for row in body.splitlines():
-        line = _compact(row).lstrip("- ").strip()
-        if line and not line.startswith("#"):
-            return line
+        line = _compact(row)
+        line = re.sub(r"^\s*(?:[-*]\s+|\d+[.)]\s+)+", "", line).strip()
+        lowered = line.lower().strip(":")
+        if not line or line.startswith("#"):
+            continue
+        if lowered in blocked_labels:
+            continue
+        if lowered.startswith(blocked_prefixes):
+            continue
+        if len(line) < 8:
+            continue
+        return line
     return default_value
 
 
@@ -143,7 +163,10 @@ def build_personalized_insight(runtime_path: Path) -> dict[str, str]:
             best_title = title
             best_body = body
 
-    relevant = _top_line(best_body, "Belum ada insight kuat yang bisa dipersonalisasi.")
+    relevant = _top_line(
+        best_body,
+        "Insight terbaru tersedia, tapi isi utama belum bisa diparsing dengan bersih.",
+    )
     has_context = bool(context_payload)
     limited_note = " (personalization limited: assistant context missing)" if not has_context else ""
 

@@ -871,12 +871,14 @@ def _load_memory_runtime():
 
 
 def _format_memory_items(items, limit=3):
+    prefix_re = re.compile(r"^\s*(?:[-*]\s+|\d+[.)]\s+)+")
     rows = []
     for item in items[:limit]:
         content = _compact(item.get("content") if isinstance(item, dict) else "")
+        content = prefix_re.sub("", content).strip()
         if not content:
             continue
-        rows.append(f"- {content[:140]}")
+        rows.append(content[:140])
     return rows
 
 
@@ -1056,8 +1058,8 @@ def _build_handoff_message(target="generic"):
         "",
         "Guardrails",
         "- Read-only surface only.",
-        "- No scheduler, no free-text query, no GitHub source.",
-        "- No Hermes bridge, no controlled write, no memory write.",
+        "- No scheduler, no GitHub source, no Hermes bridge.",
+        "- No controlled write or memory write from this handoff surface.",
     ]
     if top_opps:
         lines.extend(["", "Top opportunities", *[f"- {x}" for x in top_opps if x]])
