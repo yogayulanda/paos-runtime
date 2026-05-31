@@ -22,6 +22,8 @@ from bot.commands.intelligence import handle_insight
 from bot.commands.intelligence import handle_status
 from bot.commands.intelligence import handle_update
 from bot.commands.intelligence import handle_insight_callback
+from bot.commands.assistant_surface import handle_brief
+from bot.commands.assistant_surface import handle_opportunities
 
 
 TOKEN = TELEGRAM_BOT_TOKEN
@@ -30,16 +32,24 @@ TOKEN = TELEGRAM_BOT_TOKEN
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
-    if text.startswith("/ops"):
-        await handle_ops(update)
-        return
-
     if text.startswith("/profile"):
         await handle_profile(update)
         return
 
     if text.startswith("/digest"):
         await handle_digest(update)
+        return
+
+    if text.startswith("/opportunities"):
+        await handle_opportunities(update)
+        return
+
+    if text.startswith("/brief"):
+        await handle_brief(update)
+        return
+
+    if text.startswith("/ops"):
+        await handle_ops(update)
         return
 
     if text.startswith("/insight"):

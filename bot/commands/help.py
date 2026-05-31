@@ -8,6 +8,8 @@ Main Commands:
 /update - Ambil data terbaru lalu tampilkan dashboard
 /status - Status runtime/source/pipeline terbaru
 /digest - Lihat digest AI terbaru
+/brief - Lihat assistant brief terbaru
+/opportunities - Lihat assistant opportunities terbaru
 /ops - Show VPS/runtime status
 /help - Show this help
 
@@ -23,6 +25,8 @@ Command semantics:
 - /update = jalankan pipeline harian + tampilkan dashboard
 - /insight = tampilkan dashboard insight terbaru
 - /digest = tampilkan artifact digest terbaru
+- /brief = tampilkan artifact assistant brief terbaru
+- /opportunities = tampilkan artifact assistant opportunities terbaru
 - /status = tampilkan status runtime/source/pipeline
 """
 
