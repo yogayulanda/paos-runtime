@@ -25,6 +25,9 @@ from bot.commands.intelligence import handle_insight_callback
 from bot.commands.assistant_surface import handle_brief
 from bot.commands.assistant_surface import handle_opportunities
 from bot.commands.assistant_surface import handle_today
+from bot.commands.assistant_surface import handle_dashboard
+from bot.commands.assistant_surface import handle_daily
+from bot.commands.assistant_surface import handle_context
 
 
 TOKEN = TELEGRAM_BOT_TOKEN
@@ -32,6 +35,18 @@ TOKEN = TELEGRAM_BOT_TOKEN
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
+
+    if text.startswith("/dashboard"):
+        await handle_dashboard(update)
+        return
+
+    if text.startswith("/daily"):
+        await handle_daily(update)
+        return
+
+    if text.startswith("/context"):
+        await handle_context(update)
+        return
 
     if text.startswith("/profile"):
         await handle_profile(update)

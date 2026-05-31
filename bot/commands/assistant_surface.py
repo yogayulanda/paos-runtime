@@ -426,3 +426,432 @@ async def handle_today(update):
     opportunities_payload = _read_json(str(opportunities_json_path) if opportunities_json_path else None)
 
     await update.message.reply_text(_render_today_message(brief_payload, opportunities_payload))
+
+
+# ---------------------------------------------------------------------------
+# /dashboard — PAOS Assistant OS Home Screen
+# ---------------------------------------------------------------------------
+
+def _freshness_label(date_value):
+    if not date_value:
+        return "n/a"
+    today = _today_str()
+    if date_value == today:
+        return "fresh"
+    try:
+        artifact_date = datetime.strptime(date_value, "%Y-%m-%d").date()
+        today_date = datetime.strptime(today, "%Y-%m-%d").date()
+        delta = (today_date - artifact_date).days
+        if delta == 1:
+            return "1d old"
+        return f"{delta}d old"
+    except ValueError:
+        return "n/a"
+
+
+def _resolve_artifact_date(root_dir, filename):
+    """Resolve the date folder name of the latest artifact."""
+    path = _resolve_latest_file(root_dir, filename)
+    if not path:
+        return None, None
+    try:
+        datetime.strptime(path.parent.name, "%Y-%m-%d")
+        return path, path.parent.name
+    except ValueError:
+        return path, None
+
+
+def _render_dashboard_message(brief_payload, opportunities_payload, context_meta, artifacts_meta, runtime_statuses):
+    lines = ["🖥 PAOS Dashboard", ""]
+
+    # Fokus Hari Ini
+    lines.append("📌 Fokus Hari Ini")
+    if brief_payload:
+        focus = _compact(brief_payload.get("focus_today"))
+        if focus and not _is_generic_text(focus):
+            lines.append(focus)
+        else:
+            focus_lines = _extract_brief_focus_lines(brief_payload)
+            for idx, line in enumerate(focus_lines, start=1):
+                lines.append(f"{idx}. {line}")
+    else:
+        lines.append("Brief belum tersedia.")
+
+    # Current State
+    lines.extend(["", "📊 Current State"])
+    for label, meta in [
+        ("Brief", artifacts_meta.get("brief")),
+        ("Opportunities", artifacts_meta.get("opportunities")),
+        ("Context", artifacts_meta.get("context")),
+        ("Digest", artifacts_meta.get("digest")),
+        ("Insight", artifacts_meta.get("insight")),
+    ]:
+        if meta and meta.get("exists"):
+            lines.append(f"- {label}: ada ({_freshness_label(meta.get('date'))})")
+        else:
+            lines.append(f"- {label}: missing")
+
+    # Relevant Intelligence
+    lines.extend(["", "🧠 Relevant Intelligence"])
+    has_intelligence = False
+    if artifacts_meta.get("digest", {}).get("exists"):
+        lines.append(f"- Digest: {artifacts_meta['digest'].get('date') or 'available'}")
+        has_intelligence = True
+    if artifacts_meta.get("insight", {}).get("exists"):
+        lines.append(f"- Insight: {artifacts_meta['insight'].get('date') or 'available'}")
+        has_intelligence = True
+    if not has_intelligence:
+        lines.append("- Belum ada intelligence artifacts.")
+
+    # Top Opportunities
+    lines.extend(["", "🎯 Top Opportunities"])
+    if opportunities_payload and isinstance(opportunities_payload.get("opportunities"), list):
+        opps = opportunities_payload["opportunities"]
+        reduced = _dedupe_opportunities(opps)
+        ordered = sorted(
+            [item for item in reduced if isinstance(item, dict)],
+            key=lambda item: {"high": 0, "medium": 1, "low": 2}.get(
+                _normalize_priority(item.get("priority")), 3
+            ),
+        )
+        for idx, item in enumerate(ordered[:3], start=1):
+            title = _compact(item.get("title")) or "Tanpa judul"
+            priority = _normalize_priority(item.get("priority")).title()
+            lines.append(f"{idx}. [{priority}] {title}")
+    else:
+        lines.append("- Belum ada opportunities.")
+
+    # Recommended Actions
+    lines.extend(["", "⚡ Recommended Actions"])
+    actions_added = 0
+    if brief_payload:
+        next_action = _compact(brief_payload.get("suggested_next_action"))
+        if next_action and not _is_generic_text(next_action):
+            lines.append(f"1. {next_action}")
+            actions_added += 1
+    if not artifacts_meta.get("brief", {}).get("exists"):
+        actions_added += 1
+        lines.append(f"{actions_added}. Generate assistant brief.")
+    if not artifacts_meta.get("opportunities", {}).get("exists"):
+        actions_added += 1
+        lines.append(f"{actions_added}. Generate opportunities.")
+    if not artifacts_meta.get("context", {}).get("exists"):
+        actions_added += 1
+        lines.append(f"{actions_added}. Build assistant context.")
+    if actions_added == 0:
+        lines.append("1. All artifacts available. Execute top opportunity.")
+
+    # Context Health
+    lines.extend(["", "🩺 Context Health"])
+    ctx_loaded = artifacts_meta.get("context", {}).get("exists")
+    lines.append(f"- Context: {'loaded' if ctx_loaded else 'not loaded'}")
+    lines.append(f"- Brief: {'loaded' if artifacts_meta.get('brief', {}).get('exists') else 'not loaded'}")
+    lines.append(f"- Opportunities: {'loaded' if artifacts_meta.get('opportunities', {}).get('exists') else 'not loaded'}")
+    lines.append(f"- Runtime jobs: {len(runtime_statuses)}")
+
+    # Source Status
+    if runtime_statuses:
+        lines.extend(["", "📡 Source Status"])
+        for item in runtime_statuses[:5]:
+            job = item.get("job") or "unknown"
+            status = item.get("status") or "unknown"
+            lines.append(f"- {job}: {status}")
+
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
+async def handle_dashboard(update):
+    runtime_path = _runtime_path()
+
+    # Resolve brief
+    brief_root = runtime_path / "assistant" / "briefs"
+    brief_json_path = _resolve_latest_file(brief_root, "assistant-brief.json")
+    brief_payload = _read_json(str(brief_json_path) if brief_json_path else None)
+
+    # Resolve opportunities
+    opportunities_root = runtime_path / "assistant" / "opportunities"
+    opps_json_path = _resolve_latest_file(opportunities_root, "opportunities.json")
+    opportunities_payload = _read_json(str(opps_json_path) if opps_json_path else None)
+
+    # Resolve context meta
+    context_root = runtime_path / "assistant" / "context"
+    context_json_path, context_date = _resolve_artifact_date(context_root, "assistant-context.json")
+
+    # Resolve digest/insight meta
+    digest_root = runtime_path / "intelligence" / "digests"
+    digest_path, digest_date = _resolve_artifact_date(digest_root, "ai.md")
+
+    insight_root = runtime_path / "intelligence" / "insights"
+    insight_path, insight_date = _resolve_artifact_date(insight_root, "ai.md")
+
+    # Artifacts meta
+    artifacts_meta = {
+        "brief": {"exists": bool(brief_json_path), "date": brief_json_path.parent.name if brief_json_path else None},
+        "opportunities": {"exists": bool(opps_json_path), "date": opps_json_path.parent.name if opps_json_path else None},
+        "context": {"exists": bool(context_json_path), "date": context_date},
+        "digest": {"exists": bool(digest_path), "date": digest_date},
+        "insight": {"exists": bool(insight_path), "date": insight_date},
+    }
+
+    # Runtime statuses
+    runtime_statuses = []
+    runs_dir = runtime_path / ".runtime" / "runs"
+    if runs_dir.exists() and runs_dir.is_dir():
+        for status_path in sorted(runs_dir.glob("*/latest.json")):
+            status_payload = _read_json(str(status_path))
+            if status_payload and isinstance(status_payload, dict):
+                runtime_statuses.append({
+                    "job": status_payload.get("job") or status_path.parent.name,
+                    "status": status_payload.get("status") or "unknown",
+                    "finished_at": status_payload.get("finished_at"),
+                })
+
+    await update.message.reply_text(
+        _render_dashboard_message(
+            brief_payload, opportunities_payload, None, artifacts_meta, runtime_statuses
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# /daily — Daily Action Planner
+# ---------------------------------------------------------------------------
+
+def _render_daily_message(brief_payload, opportunities_payload, artifacts_meta):
+    lines = ["📋 PAOS Daily Planner", ""]
+
+    # 3 Priorities
+    lines.append("🎯 Priorities Today")
+    priorities = []
+
+    if brief_payload:
+        focus = _compact(brief_payload.get("focus_today"))
+        if focus and not _is_generic_text(focus):
+            priorities.append(focus)
+        brief_opps = brief_payload.get("opportunities") or {}
+        for item in (brief_opps.get("build") or [])[:2]:
+            text = _compact(item)
+            if text and text not in priorities:
+                priorities.append(text)
+
+    if opportunities_payload and isinstance(opportunities_payload.get("opportunities"), list):
+        for item in opportunities_payload["opportunities"][:5]:
+            if len(priorities) >= 3:
+                break
+            if isinstance(item, dict):
+                title = _compact(item.get("title"))
+                if title and title not in priorities:
+                    priorities.append(title)
+
+    if not priorities:
+        priorities = ["Belum ada prioritas. Generate brief dan opportunities."]
+
+    for idx, p in enumerate(priorities[:3], start=1):
+        lines.append(f"{idx}. {p}")
+
+    # 1 Defer/Ignore
+    lines.extend(["", "⏸ Defer/Ignore"])
+    defer_item = ""
+    if brief_payload:
+        risks = brief_payload.get("risks_or_checks") or []
+        for risk in reversed(risks):
+            text = _compact(risk)
+            if text and "no critical" not in text.lower():
+                defer_item = text
+                break
+    if not defer_item and opportunities_payload and isinstance(opportunities_payload.get("opportunities"), list):
+        low_prio = [
+            item for item in opportunities_payload["opportunities"]
+            if isinstance(item, dict) and _compact(item.get("priority")).lower() == "low"
+        ]
+        if low_prio:
+            defer_item = _compact(low_prio[0].get("title"))
+    if not defer_item:
+        defer_item = "Tidak ada item yang perlu di-defer."
+    lines.append(f"- {defer_item}")
+
+    # 1 Next Action
+    lines.extend(["", "▶️ Next Action"])
+    next_action = ""
+    if brief_payload:
+        next_action = _compact(brief_payload.get("suggested_next_action"))
+        if _is_generic_text(next_action):
+            next_action = ""
+    if not next_action and priorities:
+        next_action = f"Mulai dari: {priorities[0]}"
+    if not next_action:
+        next_action = "Generate assistant brief terlebih dahulu."
+    lines.append(next_action)
+
+    # 1 Context Update Suggestion
+    lines.extend(["", "💡 Context Update"])
+    today = _today_str()
+    ctx_meta = artifacts_meta.get("context", {})
+    brief_meta = artifacts_meta.get("brief", {})
+    if not ctx_meta.get("exists"):
+        lines.append("Build assistant context — belum ada context artifact.")
+    elif ctx_meta.get("date") and ctx_meta["date"] < today:
+        lines.append(f"Refresh assistant context (last: {ctx_meta['date']}).")
+    elif not brief_meta.get("exists"):
+        lines.append("Generate assistant brief untuk update context loop.")
+    elif brief_meta.get("date") and brief_meta["date"] < today:
+        lines.append(f"Regenerate brief (last: {brief_meta['date']}).")
+    else:
+        lines.append("Context loop up to date.")
+
+    # Freshness note
+    lines.extend(["", "📅 Freshness"])
+    for label, key in [("Brief", "brief"), ("Opps", "opportunities"), ("Context", "context"), ("Digest", "digest"), ("Insight", "insight")]:
+        meta = artifacts_meta.get(key, {})
+        lines.append(f"- {label}: {_freshness_label(meta.get('date')) if meta.get('exists') else 'missing'}")
+
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
+async def handle_daily(update):
+    runtime_path = _runtime_path()
+
+    # Resolve brief
+    brief_root = runtime_path / "assistant" / "briefs"
+    brief_json_path = _resolve_latest_file(brief_root, "assistant-brief.json")
+    brief_payload = _read_json(str(brief_json_path) if brief_json_path else None)
+
+    # Resolve opportunities
+    opportunities_root = runtime_path / "assistant" / "opportunities"
+    opps_json_path = _resolve_latest_file(opportunities_root, "opportunities.json")
+    opportunities_payload = _read_json(str(opps_json_path) if opps_json_path else None)
+
+    # Resolve context meta
+    context_root = runtime_path / "assistant" / "context"
+    context_json_path, context_date = _resolve_artifact_date(context_root, "assistant-context.json")
+
+    # Resolve digest/insight meta
+    digest_root = runtime_path / "intelligence" / "digests"
+    digest_path, digest_date = _resolve_artifact_date(digest_root, "ai.md")
+
+    insight_root = runtime_path / "intelligence" / "insights"
+    insight_path, insight_date = _resolve_artifact_date(insight_root, "ai.md")
+
+    artifacts_meta = {
+        "brief": {"exists": bool(brief_json_path), "date": brief_json_path.parent.name if brief_json_path else None},
+        "opportunities": {"exists": bool(opps_json_path), "date": opps_json_path.parent.name if opps_json_path else None},
+        "context": {"exists": bool(context_json_path), "date": context_date},
+        "digest": {"exists": bool(digest_path), "date": digest_date},
+        "insight": {"exists": bool(insight_path), "date": insight_date},
+    }
+
+    await update.message.reply_text(
+        _render_daily_message(brief_payload, opportunities_payload, artifacts_meta)
+    )
+
+
+# ---------------------------------------------------------------------------
+# /context — Context Health Inspector
+# ---------------------------------------------------------------------------
+
+def _render_context_message(artifacts_meta, runtime_statuses, warnings):
+    lines = ["🩺 PAOS Context Health", ""]
+
+    # Sections loaded
+    lines.append("📦 Artifact Status")
+    for label, key in [
+        ("Assistant Context", "context"),
+        ("Assistant Brief", "brief"),
+        ("Opportunities", "opportunities"),
+        ("Digest", "digest"),
+        ("Insight", "insight"),
+    ]:
+        meta = artifacts_meta.get(key, {})
+        if meta.get("exists"):
+            freshness = _freshness_label(meta.get("date"))
+            lines.append(f"- {label}: loaded ({freshness})")
+        else:
+            lines.append(f"- {label}: not loaded")
+
+    # Runtime jobs
+    lines.extend(["", "⚙️ Runtime Jobs"])
+    if runtime_statuses:
+        failed = [item for item in runtime_statuses if (item.get("status") or "").lower() in {"failed", "error"}]
+        ok_count = len(runtime_statuses) - len(failed)
+        lines.append(f"- Total: {len(runtime_statuses)} | OK: {ok_count} | Failed: {len(failed)}")
+        if failed:
+            for item in failed[:3]:
+                lines.append(f"  ❌ {item.get('job')}: {item.get('status')}")
+    else:
+        lines.append("- No runtime job statuses found.")
+
+    # Warnings
+    if warnings:
+        lines.extend(["", "⚠️ Warnings"])
+        for w in warnings[:6]:
+            lines.append(f"- {_compact(w)}")
+
+    # Memory provider status (read-only, from runtime status if available)
+    lines.extend(["", "🧠 Memory Provider"])
+    lines.append("- Status: read-only check not available from Telegram surface.")
+    lines.append("- Use /ops or run diagnostics job for full memory health.")
+
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
+async def handle_context(update):
+    runtime_path = _runtime_path()
+
+    # Resolve context meta
+    context_root = runtime_path / "assistant" / "context"
+    context_json_path, context_date = _resolve_artifact_date(context_root, "assistant-context.json")
+
+    # Resolve brief meta
+    brief_root = runtime_path / "assistant" / "briefs"
+    brief_json_path = _resolve_latest_file(brief_root, "assistant-brief.json")
+
+    # Resolve opportunities meta
+    opportunities_root = runtime_path / "assistant" / "opportunities"
+    opps_json_path = _resolve_latest_file(opportunities_root, "opportunities.json")
+
+    # Resolve digest/insight meta
+    digest_root = runtime_path / "intelligence" / "digests"
+    digest_path, digest_date = _resolve_artifact_date(digest_root, "ai.md")
+
+    insight_root = runtime_path / "intelligence" / "insights"
+    insight_path, insight_date = _resolve_artifact_date(insight_root, "ai.md")
+
+    artifacts_meta = {
+        "brief": {"exists": bool(brief_json_path), "date": brief_json_path.parent.name if brief_json_path else None},
+        "opportunities": {"exists": bool(opps_json_path), "date": opps_json_path.parent.name if opps_json_path else None},
+        "context": {"exists": bool(context_json_path), "date": context_date},
+        "digest": {"exists": bool(digest_path), "date": digest_date},
+        "insight": {"exists": bool(insight_path), "date": insight_date},
+    }
+
+    # Runtime statuses
+    runtime_statuses = []
+    runs_dir = runtime_path / ".runtime" / "runs"
+    if runs_dir.exists() and runs_dir.is_dir():
+        for status_path in sorted(runs_dir.glob("*/latest.json")):
+            status_payload = _read_json(str(status_path))
+            if status_payload and isinstance(status_payload, dict):
+                runtime_statuses.append({
+                    "job": status_payload.get("job") or status_path.parent.name,
+                    "status": status_payload.get("status") or "unknown",
+                    "finished_at": status_payload.get("finished_at"),
+                })
+
+    # Collect warnings from context JSON if available
+    warnings = []
+    if context_json_path:
+        context_payload = _read_json(str(context_json_path))
+        if context_payload and isinstance(context_payload, dict):
+            diag = context_payload.get("diagnostics") or {}
+            warnings.extend(diag.get("warnings") or [])
+
+    # Check for stale artifacts
+    today = _today_str()
+    for label, key in [("brief", "brief"), ("opportunities", "opportunities"), ("context", "context")]:
+        meta = artifacts_meta.get(key, {})
+        if meta.get("exists") and meta.get("date") and meta["date"] < today:
+            warnings.append(f"{label} is stale ({meta['date']})")
+
+    await update.message.reply_text(
+        _render_context_message(artifacts_meta, runtime_statuses, warnings)
+    )
