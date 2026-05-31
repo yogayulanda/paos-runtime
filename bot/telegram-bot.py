@@ -30,6 +30,7 @@ from bot.commands.assistant_surface import handle_daily
 from bot.commands.assistant_surface import handle_context
 from bot.commands.assistant_surface import handle_memory
 from bot.commands.assistant_surface import handle_handoff
+from bot.commands.assistant_surface import handle_hermes_status
 from bot.commands.assistant_surface import handle_promote_memory
 from bot.commands.assistant_surface import handle_draft_context_update
 from bot.commands.assistant_surface import handle_preview_context_update
@@ -61,6 +62,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text.startswith("/handoff"):
         await handle_handoff(update)
+        return
+
+    if text.startswith("/hermes"):
+        await handle_hermes_status(update)
         return
 
     if text.startswith("/promote-memory"):

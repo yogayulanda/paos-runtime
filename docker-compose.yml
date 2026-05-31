@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: docker/hermes/Dockerfile.hermes-paos
     image: paos-hermes-agent:local
-    command: gateway run
+    command: sleep infinity
     env_file:
       - .env
     volumes:

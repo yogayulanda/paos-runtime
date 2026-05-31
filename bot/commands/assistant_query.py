@@ -7,6 +7,9 @@ if str(RUNTIME_DIR) not in sys.path:
     sys.path.insert(0, str(RUNTIME_DIR))
 
 from assistant.query import route_intent  # type: ignore
+from assistant.hermes import query_hermes  # type: ignore
+from assistant.hermes import hermes_orchestration_enabled  # type: ignore
+from assistant.hermes import hermes_timeout_seconds  # type: ignore
 from bot.commands.assistant_surface import (
     _build_handoff_message,
     _build_memory_surface_message,
@@ -39,6 +42,12 @@ def _render_unknown_message() -> str:
 
 async def handle_free_text_query(update, context):
     text = str(update.message.text or "").strip()
+    if hermes_orchestration_enabled():
+        hermes_result = query_hermes(text, timeout_seconds=hermes_timeout_seconds())
+        if hermes_result.used and hermes_result.response_text.strip():
+            await update.message.reply_text(hermes_result.response_text.strip())
+            return
+
     intent = route_intent(text)
 
     if intent == "daily":

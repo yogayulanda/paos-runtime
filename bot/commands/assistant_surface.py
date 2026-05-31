@@ -1247,6 +1247,45 @@ def _build_insight_relevance_message():
     return "\n".join(lines)[:MAX_TELEGRAM]
 
 
+def _build_hermes_status_message() -> str:
+    runtime_module_root = _runtime_path() / "runtime"
+    if str(runtime_module_root) not in sys.path:
+        sys.path.insert(0, str(runtime_module_root))
+
+    try:
+        from assistant.hermes import hermes_container_status  # type: ignore
+        from assistant.hermes import hermes_mcp_paos_status  # type: ignore
+        from assistant.hermes import hermes_orchestration_enabled  # type: ignore
+        from assistant.hermes import hermes_provider_status  # type: ignore
+        from assistant.hermes import hermes_timeout_seconds  # type: ignore
+
+        orchestration_enabled = hermes_orchestration_enabled()
+        container_status = hermes_container_status(timeout_seconds=4)
+        mcp_status = hermes_mcp_paos_status(timeout_seconds=10)
+        provider_status = hermes_provider_status(timeout_seconds=10)
+        if not orchestration_enabled and provider_status in {"timeout", "unknown"}:
+            provider_status = "not configured/unknown"
+        timeout_seconds = hermes_timeout_seconds()
+    except Exception:
+        orchestration_enabled = False
+        container_status = "unknown"
+        mcp_status = "unknown"
+        provider_status = "unknown"
+        timeout_seconds = 45
+
+    lines = [
+        "Hermes Status",
+        "",
+        f"- Telegram orchestration enabled: {'true' if orchestration_enabled else 'false'}",
+        "- Fallback enabled: true",
+        f"- Hermes container: {container_status}",
+        f"- MCP paos: {mcp_status}",
+        f"- Inference provider: {provider_status}",
+        f"- Hermes timeout seconds: {timeout_seconds}",
+    ]
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
 async def handle_memory(update):
     await update.message.reply_text(_build_memory_surface_message())
 
@@ -1262,6 +1301,10 @@ async def handle_handoff(update):
     else:
         target = "generic"
     await update.message.reply_text(_build_handoff_message(target=target))
+
+
+async def handle_hermes_status(update):
+    await update.message.reply_text(_build_hermes_status_message())
 
 
 async def handle_promote_memory(update):

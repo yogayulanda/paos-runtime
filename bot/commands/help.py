@@ -7,6 +7,7 @@ Assistant OS:
 /daily - Daily action planner (priorities, defer, next action)
 /context - Context health inspector (artifact status, freshness, warnings)
 /memory - Read-only memory surface (progress, decisions, blockers, next)
+/hermes - Hermes orchestration status (read-only observability)
 /handoff - Generate handoff summary (use /handoff codex, /handoff claude, or /handoff hermes)
 /promote-memory - Suggest durable memory promotions (no write)
 /draft-context-update - Build controlled durable-context draft (no direct write)
@@ -39,6 +40,7 @@ Command semantics:
 - /daily = compact daily action planner
 - /context = context health and artifact freshness
 - /memory = read-only memory surface + fallback status
+- /hermes = Hermes container/MCP/provider + orchestration toggle status
 - /handoff = copy-paste handoff summary for next assistant
 - /handoff codex = handoff tuned for Codex continuation
 - /handoff claude = handoff tuned for Claude continuation
@@ -54,7 +56,7 @@ Command semantics:
 - /opportunities = tampilkan artifact assistant opportunities terbaru
 - /today = ringkasan fokus + top opportunities + next action
 - /status = tampilkan status runtime/source/pipeline
-- free-text = route intent read-only (rule-based, no LLM call)
+- free-text = Hermes-first orchestration when enabled, fallback to rule-based router
 - insight_relevance = personalized relevance summary from latest insight + assistant context
 """
 
