@@ -22,7 +22,22 @@ def route_intent(text: str) -> str:
         return "handoff"
     if _contains_any(normalized, ("masuk repo paos", "promote", "promosi", "durable", "simpan ke paos")):
         return "context_update"
-    if _contains_any(normalized, ("context sehat", "konteks sehat", "context health", "health check")):
+    if _contains_any(
+        normalized,
+        (
+            "context saya sehat gak",
+            "konteks saya sehat gak",
+            "context sehat",
+            "konteks sehat",
+            "health context",
+            "context health",
+            "cek context",
+            "cek konteks",
+            "kondisi context",
+            "kondisi konteks",
+            "health check",
+        ),
+    ):
         return "context_health"
     if _contains_any(normalized, ("opportunity", "peluang", "bisa dikerjain")):
         return "opportunities"

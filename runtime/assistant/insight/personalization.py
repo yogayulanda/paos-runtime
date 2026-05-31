@@ -1,6 +1,24 @@
 import re
 from pathlib import Path
 
+GENERIC_INSIGHT_PREFIXES = (
+    "yang lagi penting:",
+    "artinya:",
+    "kenapa penting:",
+    "kenapa ini penting:",
+    "rekomendasi:",
+    "next:",
+)
+
+GENERIC_SECTION_TITLES = {
+    "yang lagi penting",
+    "artinya",
+    "kenapa penting",
+    "kenapa ini penting",
+    "rekomendasi",
+    "next",
+}
+
 
 def _compact(value):
     return " ".join(str(value or "").split())
@@ -68,6 +86,17 @@ def _parse_sections(markdown_text: str) -> dict[str, str]:
 def _top_line(body: str, default_value: str) -> str:
     blocked_labels = {
         "yang perlu kamu lakukan",
+        "yang lagi penting",
+        "artinya",
+        "aksi berikutnya",
+        "langkah berikutnya",
+        "rekomendasi",
+        "rekomendasi aksi",
+        "kenapa ini penting",
+        "kenapa relevan",
+        "dampaknya",
+        "berikutnya",
+        "next",
         "kenapa penting",
         "recommended action",
         "why it matters",
@@ -77,20 +106,56 @@ def _top_line(body: str, default_value: str) -> str:
         "paos / forge relevance",
     }
     blocked_prefixes = tuple(f"{label}:" for label in blocked_labels)
+    strip_prefixes = GENERIC_INSIGHT_PREFIXES + (
+        "rekomendasi aksi:",
+        "aksi berikutnya:",
+        "langkah berikutnya:",
+    )
+
+    def _strip_formatting_prefixes(line_value: str) -> str:
+        line_value = re.sub(r"^\s*(?:#+\s*|(?:[-*]\s+|\d+[.)]\s+)+)", "", line_value).strip()
+        line_value = re.sub(r"^\*{1,2}\s*(.*?)\s*\*{1,2}$", r"\1", line_value).strip()
+        return line_value
+
+    def _strip_generic_label_prefix(line_value: str) -> str:
+        lowered_value = line_value.lower().strip()
+        for prefix in strip_prefixes:
+            if lowered_value.startswith(prefix):
+                remainder = line_value[len(prefix) :].strip()
+                remainder = re.sub(r"^\s*(?:[-*]\s+|\d+[.)]\s+)", "", remainder).strip()
+                return remainder
+        return line_value
+
     for row in body.splitlines():
-        line = _compact(row)
-        line = re.sub(r"^\s*(?:[-*]\s+|\d+[.)]\s+)+", "", line).strip()
-        lowered = line.lower().strip(":")
+        line = _strip_formatting_prefixes(_compact(row))
+        line = _strip_generic_label_prefix(line)
+        line = _strip_formatting_prefixes(line)
+        lowered = line.lower()
+        lowered_clean = re.sub(r"[\s\-:]+", " ", lowered).strip()
+        lowered_tokens = [token.strip() for token in re.split(r"[:\-]+", lowered) if token.strip()]
         if not line or line.startswith("#"):
             continue
-        if lowered in blocked_labels:
+        if lowered_clean in blocked_labels:
             continue
-        if lowered.startswith(blocked_prefixes):
+        if lowered_clean.startswith(blocked_prefixes):
+            continue
+        if lowered_tokens and all(token in blocked_labels for token in lowered_tokens):
             continue
         if len(line) < 8:
             continue
         return line
     return default_value
+
+
+def _cleanup_relevant_line(line_value: str) -> str:
+    line = _compact(line_value)
+    lowered = line.lower().strip()
+    for prefix in GENERIC_INSIGHT_PREFIXES:
+        if lowered.startswith(prefix):
+            line = line[len(prefix) :].strip()
+            line = re.sub(r"^\s*(?:[-*]\s+|\d+[.)]\s+)", "", line).strip()
+            break
+    return line
 
 
 def _score(text: str, keywords: tuple[str, ...]) -> int:
@@ -167,6 +232,7 @@ def build_personalized_insight(runtime_path: Path) -> dict[str, str]:
         best_body,
         "Insight terbaru tersedia, tapi isi utama belum bisa diparsing dengan bersih.",
     )
+    relevant = _cleanup_relevant_line(relevant) or "Insight terbaru tersedia, tapi isi utama belum bisa diparsing dengan bersih."
     has_context = bool(context_payload)
     limited_note = " (personalization limited: assistant context missing)" if not has_context else ""
 
@@ -180,8 +246,14 @@ def build_personalized_insight(runtime_path: Path) -> dict[str, str]:
     content_opportunity = "Bisa jadi bahan konten ringkas: what changed, why it matters, dan aksi konkret."
     recommended = "Pilih 1 aksi kecil dari insight ini dan jalankan hari ini, lalu validasi hasilnya di context/brief berikutnya."
 
+    best_title_clean = _compact(best_title).lower().strip(" :")
+    if best_title_clean in GENERIC_SECTION_TITLES:
+        relevant_insight = f"{relevant}{limited_note}"
+    else:
+        relevant_insight = f"{best_title}: {relevant}{limited_note}"
+
     return {
-        "relevant_insight": f"{best_title}: {relevant}{limited_note}",
+        "relevant_insight": relevant_insight,
         "why_it_matters_to_you": why_you,
         "paos_forge_relevance": paos_forge,
         "work_career_relevance": work_career,
