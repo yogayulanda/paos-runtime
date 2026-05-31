@@ -40,6 +40,11 @@ def parse_args():
         choices=["auto", "ai", "heuristic"],
         default="auto",
     )
+    parser.add_argument(
+        "--send-telegram",
+        action="store_true",
+        help="Send digest + insight delivery messages to Telegram.",
+    )
     return parser.parse_args()
 
 
@@ -133,7 +138,7 @@ def main():
             date=args.date,
             mode=args.mode,
         )
-        telegram_sent = send_daily_delivery(result)
+        telegram_sent = send_daily_delivery(result) if args.send_telegram else False
         status = build_status(
             started_at=started_at,
             status="success",

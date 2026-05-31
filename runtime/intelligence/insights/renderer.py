@@ -72,13 +72,54 @@ def split_sentences(text):
     normalized = compact_text(text)
     if not normalized:
         return []
-    normalized = normalized.replace(":", ". ")
     chunks = []
     for piece in normalized.split(". "):
         piece = piece.strip(" .")
         if piece:
             chunks.append(piece)
     return chunks
+
+
+def strip_instruction_prefix(text):
+    value = compact_text(text)
+    lowered = value.lower()
+    prefixes = (
+        "siapkan konten:",
+        "siapkan konten",
+        "tulis post tentang",
+        "tulis posting tentang",
+        "jadikan konten tentang",
+        "buat posting tentang",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            value = value[len(prefix):].lstrip(" :;,-")
+            break
+    return value
+
+
+def starts_with_action_verb_id(text):
+    lowered = compact_text(text).lower()
+    verbs = ("pelajari", "coba", "bangun", "evaluasi", "bandingkan", "uji", "baca", "catat", "jadikan")
+    return any(lowered.startswith(f"{verb} ") for verb in verbs)
+
+
+def is_action_line_id(text):
+    lowered = compact_text(text).lower()
+    if lowered.startswith("hari ini,"):
+        return True
+    if lowered.startswith("langkah hari ini:"):
+        return True
+    return starts_with_action_verb_id(lowered)
+
+
+def to_observation_line(text):
+    value = strip_instruction_prefix(text)
+    if starts_with_action_verb_id(value):
+        if "dengan " in value:
+            value = value.split("dengan ", 1)[1]
+        value = f"Sinyal saat ini menonjol: {value[0].lower() + value[1:] if value else 'pergeseran workflow AI makin nyata'}"
+    return value
 
 
 def source_titles(insight):
@@ -160,127 +201,14 @@ def personalize_phrase(text):
 
 def social_headline(insight, language):
     title = compact_text(insight.get("title"))
-    blob = lower_blob(insight)
-    insight_type = insight.get("insight_type")
-
-    if language == "id":
-        if insight_type == "tool" and ("reliabil" in blob or "honesty" in blob or "evaluasi" in blob or "jujur" in blob):
-            return "Yang berubah ternyata bukan cuma modelnya."
-        if "workflow" in blob and "prompt" in blob:
-            return "Banyak engineer masih fokus prompt."
-        if "reliabil" in blob or "honesty" in blob or "jujur" in blob or "evaluasi" in blob:
-            return "Benchmark mulai kehilangan nilainya."
-        if "token" in blob or "observability" in blob or "usage" in blob:
-            return "Token bocor itu bukan masalah finance doang."
-        if "opus 4.8" in blob or "claude opus" in blob:
-            return personalize_phrase("Claude Opus 4.8 mulai layak dites serius")
-        if "datasette" in blob or "mnemosyne" in blob or "render" in blob or "tooling lokal" in blob:
-            return "Tool kecil mulai jadi fondasi workflow AI."
-        if "open model" in blob or "china" in blob or "open-source" in blob:
-            return "Yang bikin open-source AI berbahaya bukan modelnya."
-        if "openai" in blob and ("health" in blob or "hospital" in blob or "sector" in blob):
-            return "OpenAI tidak cuma jualan model ke developer."
-        if insight_type == "content":
-            return "Ada angle konten yang cukup tajam hari ini."
-    else:
-        if "workflow" in blob and "prompt" in blob:
-            return "Workflow is starting to matter more than prompting."
-        if "reliabil" in blob or "honesty" in blob or "evaluat" in blob:
-            return "Reliability is starting to matter more than empty benchmarks."
-        if "token" in blob or "observability" in blob or "usage" in blob:
-            return "Token usage is no longer just a finance problem."
-        if "opus 4.8" in blob or "claude opus" in blob:
-            return personalize_phrase("Claude Opus 4.8 is worth a serious test")
-        if "open model" in blob or "china" in blob or "open-source" in blob:
-            return "Open-source AI is getting harder to catch."
-
-    return personalize_phrase(title or "Insight worth attention today")
+    return title or ("Insight worth attention today" if language == "en" else "Insight yang layak diperhatikan")
 
 
 def social_body(insight, language):
-    blob = lower_blob(insight)
-    insight_type = insight.get("insight_type")
-
-    if language == "id":
-        if insight_type == "tool" and ("reliabil" in blob or "honesty" in blob or "evaluasi" in blob or "jujur" in blob):
-            return [
-                "Opus 4.8 tidak cuma dijual sebagai model yang lebih pintar.",
-                "Narasinya lebih menarik: lebih jujur saat ragu, lebih stabil buat kerja panjang.",
-                "Itu penting kalau output salah bisa bikin PR rusak atau refactor berantakan.",
-                "Tesnya jangan cuma pakai prompt mainan.",
-                "Coba di kerjaan repo yang panjang dan gampang salah.",
-            ]
-        if "workflow" in blob and "prompt" in blob:
-            return [
-                "Claude baru ngenalin dynamic workflow.",
-                "Artinya AI bisa bikin rencana, pecah kerjaan, jalan paralel, lalu cek ulang hasilnya sendiri.",
-                "Prompt tetap penting.",
-                "Tapi leverage terbesar mulai pindah ke cara kita mendesain alur kerja.",
-                "Kalau lagi bangun PAOS atau Forge, ini area yang layak dipelajari.",
-            ]
-        if "reliabil" in blob or "honesty" in blob or "evaluasi" in blob or "jujur" in blob:
-            return [
-                "Hampir semua vendor sekarang bisa pamer skor.",
-                "Pertanyaan barunya: dia tahu kapan harus bilang tidak yakin?",
-                "Eval-nya beneran mengukur kualitas, atau cuma terlihat ilmiah?",
-                "Ini penting karena benchmark bagus belum tentu aman dipakai di workflow nyata.",
-                "Skill yang naik nilainya: bisa menilai model tanpa ikut hype.",
-            ]
-        if "token" in blob or "observability" in blob or "usage" in blob:
-            return [
-                "Banyak orang mengira AI mahal karena modelnya.",
-                "Padahal biaya terbesar sering datang dari workflow yang buruk.",
-                "Begitu AI panggil banyak tool, kita perlu tahu step mana yang boros.",
-                "Claude Code mulai buka usage per Skills, Agents, MCP, dan Plugin.",
-                "Kalau PAOS makin banyak pakai agent, observability token bukan nice-to-have lagi.",
-            ]
-        if "opus 4.8" in blob or "claude opus" in blob:
-            return [
-                "Yang menarik bukan sekadar angka versi baru.",
-                "Anthropic mendorong Opus untuk kerja coding yang lebih panjang dan mandiri.",
-                "Kalau klaimnya benar, ini cocok dites di bug sweep, migrasi, atau refactor besar.",
-                "Buat PAOS Signal Builder, tes yang masuk akal adalah kerja repo nyata, bukan prompt demo.",
-            ]
-        if "datasette" in blob or "mnemosyne" in blob or "render" in blob or "local" in blob:
-            return [
-                "Sinyalnya kecil, tapi praktis.",
-                "Datasette, llm-anthropic, renderer ringan, dan memory layer seperti Mnemosyne makin terasa berguna.",
-                "Bukan barang mewah.",
-                "Ini fondasi buat workflow AI yang bisa dicek, diubah, dan tidak sepenuhnya tergantung vendor.",
-            ]
-        if "openai" in blob and ("health" in blob or "hospital" in blob or "sector" in blob):
-            return [
-                "OpenAI lagi coba nunjukin bahwa AI bukan cuma buat coding atau chatbot.",
-                "Mereka mulai masuk ke area yang taruhannya lebih tinggi: healthcare, software delivery, dan domain sensitif.",
-                "Menarik, tapi ini masih lebih cocok dipantau daripada dijadikan fokus hari ini.",
-            ]
-        if "open model" in blob or "china" in blob or "open-source" in blob:
-            return [
-                "Model bisa disalin.",
-                "Ekosistem jauh lebih susah dikejar.",
-                "Di open-source, tools, benchmark, workflow, dataset, dan komunitas tumbuh bareng.",
-                "Efeknya mirip Linux: lambat di awal, lalu susah dikejar saat ekosistemnya matang.",
-                "Ini layak dipantau sebelum terlalu terkunci ke satu vendor.",
-            ]
-        if insight_type == "content":
-            return [
-                "Bahannya cocok jadi opini pendek.",
-                "Bukan tentang model baru semata.",
-                "Angle yang lebih kuat: cara kerja engineer mulai berubah.",
-                "Kalau ditulis, jangan jadikan rangkuman berita.",
-                "Jadikan observasi dari sudut builder.",
-            ]
-    else:
-        if "workflow" in blob and "prompt" in blob:
-            return [
-                "Vendors are pushing sub-agents, review loops, and automated workflows.",
-                "Prompts still matter, but the bigger leverage is moving into workflow design.",
-            ]
-
     parts = split_sentences(insight.get("reason"))
     if not parts:
         return []
-    return [trim_text(parts[0], 110), trim_text(parts[1], 110)] if len(parts) > 1 else [trim_text(parts[0], 110)]
+    return [trim_text(part, 132) for part in parts[:5] if trim_text(part, 132)]
 
 
 def normalize_lines(lines, max_lines=6):
@@ -354,6 +282,20 @@ def count_displayed_insights(lines):
 def render_feed_item(insight, language):
     lines = [f"• {social_headline(insight, language)}"]
     lines.extend(normalize_lines(social_body(insight, language), max_lines=6))
+    return lines
+
+
+def render_important_item(insight, language):
+    headline = social_headline(insight, language)
+    body = []
+    for line in social_body(insight, language):
+        if language == "id" and is_action_line_id(line):
+            continue
+        body.append(line)
+    if not body:
+        body = social_body(insight, language)
+    lines = [f"• {headline}"]
+    lines.extend(normalize_lines(body, max_lines=5))
     return lines
 
 
@@ -456,6 +398,21 @@ def post_from_insight(insight, language):
                 "",
                 "That is the shift worth watching.",
             ]
+    reason_parts = [strip_instruction_prefix(part) for part in split_sentences(insight.get("reason"))]
+    title = compact_text(insight.get("title"))
+    if reason_parts:
+        lines = []
+        if title and not starts_with_action_verb_id(title):
+            lines.extend([title, ""])
+        lines.extend([trim_text(part, 180) for part in reason_parts[:5] if trim_text(part, 180)])
+        if len(lines) < 4 and language == "id":
+            lines.extend(
+                [
+                    "",
+                    "Kalau kamu lagi bangun workflow AI, ini layak dicoba sekarang.",
+                ]
+            )
+        return lines
     return None
 
 
@@ -499,6 +456,17 @@ def x_post_from_insight(insight, language):
                 "",
                 "Prompt tetap penting. Tapi leverage berikutnya kayaknya ada di desain kerja.",
             ]
+    reason_parts = [strip_instruction_prefix(part) for part in split_sentences(insight.get("reason"))]
+    title = compact_text(insight.get("title"))
+    if reason_parts:
+        lines = []
+        if title and not starts_with_action_verb_id(title):
+            lines.append(trim_text(title, 140))
+            lines.append("")
+        lines.extend([trim_text(part, 160) for part in reason_parts[:3] if trim_text(part, 160)])
+        if len([line for line in lines if compact_text(line)]) < 2 and language == "id":
+            lines.append("Ini bisa jadi bahan diskusi yang relevan buat workflow AI hari ini.")
+        return lines
     return None
 
 
@@ -543,7 +511,7 @@ def build_ready_posts(language, insights, blocked_headlines=None):
 
 def post_from_content_insight(insight, language):
     blob = lower_blob(insight)
-    reason_parts = split_sentences(insight.get("reason"))
+    reason_parts = [strip_instruction_prefix(part) for part in split_sentences(insight.get("reason"))]
     if language == "id":
         if "workflow" in blob and "agent" in blob:
             return [
@@ -565,7 +533,9 @@ def post_from_content_insight(insight, language):
                 "Tapi desain workflow mulai kelihatan lebih mahal nilainya.",
             ]
         if reason_parts:
-            return [trim_text(compact_text(insight.get("title")), 120), "", trim_text(reason_parts[0], 132)]
+            lines = [trim_text(compact_text(insight.get("title")), 120), ""]
+            lines.extend([trim_text(part, 150) for part in reason_parts[:4] if trim_text(part, 150)])
+            return lines
     return None
 
 
@@ -679,6 +649,27 @@ def render_insight_sections(language, insights):
         if picked:
             remaining = [item for item in remaining if all(not similar_insight(item, used) for used in used_insights)]
 
+    if not buckets["important"]:
+        fallback_candidates = [
+            item for item in remaining
+            if section_key_for_insight(item) in {"market", "tool", "learning"}
+        ]
+        for candidate in fallback_candidates:
+            candidate_title = compact_text(candidate.get("title"))
+            if starts_with_action_verb_id(candidate_title):
+                candidate = dict(candidate)
+                candidate["title"] = to_observation_line(candidate_title)
+            if _append_unique_display(
+                buckets["important"],
+                candidate,
+                used_insights,
+                used_signatures,
+                used_headlines,
+                language,
+            ):
+                remaining = [item for item in remaining if all(not similar_insight(item, used) for used in used_insights)]
+                break
+
     content_candidates = [item for item in remaining if section_key_for_insight(item) == "content"]
     buckets["content"] = []
     for candidate in content_candidates:
@@ -749,7 +740,10 @@ def render_insight_sections(language, insights):
         else:
             lines.extend([f"## {copy['sections'][section]}", ""])
             for insight in items:
-                lines.extend(render_feed_item(insight, language))
+                if section == "important":
+                    lines.extend(render_important_item(insight, language))
+                else:
+                    lines.extend(render_feed_item(insight, language))
                 lines.append("")
 
         rendered_sections += 1

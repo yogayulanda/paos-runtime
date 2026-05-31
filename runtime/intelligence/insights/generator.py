@@ -72,6 +72,189 @@ def compact_text(value):
     return " ".join(str(value or "").split())
 
 
+ACTION_PREFIXES_ID = (
+    "pelajari",
+    "coba",
+    "bangun",
+    "evaluasi",
+    "bandingkan",
+    "uji",
+    "baca",
+    "catat",
+    "siapkan",
+    "tulis",
+)
+
+
+DANGLING_ENDINGS_ID = (
+    "pada tiga hal",
+    "seperti",
+    "yaitu",
+    "antara lain",
+    "dengan",
+    "untuk",
+)
+
+
+def has_action_hint(text, language):
+    blob = compact_text(text).lower()
+    if language == "id":
+        hints = (
+            "aksi:",
+            "uji",
+            "tes",
+            "bandingkan",
+            "pelajari",
+            "coba",
+            "bangun",
+            "buat",
+            "tulis",
+            "posting",
+            "follow up",
+            "lanjutkan",
+        )
+    else:
+        hints = (
+            "action:",
+            "test",
+            "compare",
+            "learn",
+            "build",
+            "post",
+            "follow up",
+            "evaluate",
+        )
+    return any(hint in blob for hint in hints)
+
+
+def normalize_tone_id(text):
+    value = compact_text(text)
+    return (
+        value.replace("Anda ", "kamu ")
+        .replace("anda ", "kamu ")
+        .replace("Anda,", "kamu,")
+        .replace("Anda.", "kamu.")
+        .replace("Anda", "kamu")
+    )
+
+
+def fix_dangling_ending(text, language):
+    value = compact_text(text)
+    if not value:
+        return value
+
+    lowered = value.lower().rstrip(" .,:;")
+    if language == "id":
+        for ending in DANGLING_ENDINGS_ID:
+            if lowered.endswith(ending):
+                if ending == "pada tiga hal":
+                    return f"{value}: kualitas hasil, kejujuran saat ragu, dan biaya loop panjang."
+                if ending == "seperti":
+                    return f"{value} evaluasi kualitas output, stabilitas, dan biaya."
+                if ending == "yaitu":
+                    return f"{value} evaluasi kualitas output, stabilitas, dan biaya."
+                if ending == "antara lain":
+                    return f"{value} kualitas output, stabilitas, dan biaya."
+                if ending == "dengan":
+                    return f"{value} pendekatan yang bisa diuji hari ini."
+                if ending == "untuk":
+                    return f"{value} eksperimen yang relevan hari ini."
+    return value
+
+
+def ensure_complete_sentence(text, language):
+    value = compact_text(text)
+    if not value:
+        return value
+    value = fix_dangling_ending(value, language)
+    if value[-1] not in ".!?":
+        value = f"{value}."
+    return value
+
+
+def normalize_title_semantics(title, insight_type, reason, language):
+    value = compact_text(title)
+    if language == "id":
+        value = normalize_tone_id(value)
+    if not value:
+        return value
+
+    lowered = value.lower()
+    action_start = any(lowered.startswith(f"{prefix} ") for prefix in ACTION_PREFIXES_ID)
+    if insight_type in {"project", "career", "market"} and action_start:
+        reason_first = compact_text(str(reason or "").split(".")[0])
+        if reason_first:
+            reason_first = normalize_tone_id(reason_first) if language == "id" else reason_first
+            if any(reason_first.lower().startswith(f"{prefix} ") for prefix in ACTION_PREFIXES_ID):
+                return "Sinyal saat ini bergeser ke workflow agent yang lebih siap produksi"
+            return ensure_complete_sentence(reason_first, language).rstrip(".")
+        return "Sinyal saat ini bergeser ke workflow agent yang lebih siap produksi"
+    return fix_dangling_ending(value, language)
+
+
+def default_action_line(title, insight_type, language):
+    title_text = compact_text(title)
+    if language == "id":
+        mapping = {
+            "learning": f"Langkah hari ini: pilih satu bacaan utama tentang '{title_text}', lalu tulis 3 poin yang langsung bisa dipakai di workflow PAOS/Forge.",
+            "tool": f"Langkah hari ini: uji '{title_text}' di satu task nyata PAOS/Forge dan catat trade-off kualitas, biaya, dan stabilitas.",
+            "project": f"Langkah hari ini: turunkan '{title_text}' jadi satu eksperimen kecil yang bisa dijalankan hari ini di PAOS/Forge.",
+            "content": f"Langkah hari ini: ubah '{title_text}' jadi draft posting singkat (Threads/X) dengan satu opini yang jelas dan satu contoh nyata.",
+            "career": f"Langkah hari ini: catat dampak '{title_text}' ke skill prioritas minggu ini dan tentukan satu langkah follow-up yang konkret.",
+            "market": f"Langkah hari ini: pantau '{title_text}' selama 3-7 hari lalu putuskan dampaknya ke pilihan model/workflow yang dipakai.",
+        }
+    else:
+        mapping = {
+            "learning": f"Action: pick one core reading on '{title_text}' and extract 3 ideas you can apply in your workflow today.",
+            "tool": f"Action: test '{title_text}' on one real PAOS/Forge task and record quality, cost, and stability trade-offs.",
+            "project": f"Action: turn '{title_text}' into one small experiment you can run today in PAOS/Forge.",
+            "content": f"Action: convert '{title_text}' into a short Threads/X draft with one clear opinion and one concrete example.",
+            "career": f"Action: map '{title_text}' to this week's priority skills and define one concrete follow-up step.",
+            "market": f"Action: monitor '{title_text}' for 3-7 days and decide whether it changes your model/workflow choices.",
+        }
+    return mapping.get(insight_type, mapping.get("project"))
+
+
+def normalize_reason(reason, title, insight_type, language):
+    value = compact_text(reason)
+    if language == "id":
+        value = normalize_tone_id(value)
+    if not value:
+        return value
+    value = ensure_complete_sentence(value, language)
+    if has_action_hint(value, language):
+        return value
+    with_action = f"{value} {default_action_line(title, insight_type, language)}".strip()
+    return ensure_complete_sentence(with_action, language)
+
+
+def ensure_important_coverage(insights, language):
+    if not insights:
+        return insights
+
+    important = [item for item in insights if item.get("insight_type") in {"project", "career"}]
+    needed = 2 - len(important)
+    if needed <= 0:
+        return insights
+
+    for item in insights:
+        if needed <= 0:
+            break
+        if item.get("insight_type") in {"project", "career"}:
+            continue
+        forced_type = "project" if needed == 2 else "career"
+        item["insight_type"] = forced_type
+        item["reason"] = normalize_reason(
+            reason=item.get("reason"),
+            title=item.get("title"),
+            insight_type=forced_type,
+            language=language,
+        )
+        needed -= 1
+
+    return insights
+
+
 def digest_path(date, category):
     return DIGESTS_DIR / resolve_date(date) / f"{category}.md"
 
@@ -142,13 +325,14 @@ def build_messages(category, language, signals):
     system = (
         "You are generating PAOS daily insights from existing intelligence signals.\n"
         "Return strict JSON only.\n"
-        "Convert signals into actionable personal intelligence that answers: what should I pay attention to today?\n"
-        "Prioritize personal actionability: what should the user study, evaluate, build, publish, monitor, or leverage today?\n"
-        "Prefer personally actionable interpretations over broad strategic commentary.\n"
+        "Convert signals into editorial and actionable personal intelligence, not just news summaries.\n"
+        "Prioritize concrete next moves: what should the user read, learn, test, build, compare, post, or follow up today?\n"
+        "Treat insight output as the action layer above digest: practical, specific, and immediately usable.\n"
+        "Prefer actionable interpretations over broad strategic commentary.\n"
         f"Write all user-facing text in {language_name}.\n"
         "Do not create tasks, schedules, automations, memory updates, or personal-context changes.\n"
         "Do not invent facts beyond the source signals.\n"
-        "Use concise, high-signal titles.\n"
+        "Use concise, high-signal titles with clear action intent when possible.\n"
         "Only cite signal titles that exist in the input."
     )
     user = {
@@ -182,6 +366,13 @@ def build_messages(category, language, signals):
                 "Each insight must reference at least one source signal title from the input.",
                 "Prefer combining related signals into one insight when it increases actionability.",
                 "Do not output tasks, reminders, TODOs, or automation instructions.",
+                "Write each reason as 2-5 complete sentences in natural style.",
+                "Each reason must include: (a) what changed / what matters now, and (b) what the user should do next today.",
+                "Avoid generic observations that stop at commentary; include concrete next-move guidance.",
+                "Prefer Indonesian practical style: direct, readable, and not academic.",
+                "Avoid repeating the same core statement across multiple insights.",
+                "Ensure at least one insight captures current important/hyped/emerging signal momentum (for Yang Lagi Penting), usually via project/career/market when appropriate.",
+                "Ensure at least one insight can support complete social-ready content opportunity (for Siap Diposting), usually via content/project/tool with a clear publishing angle.",
                 "If a signal fits multiple categories, choose the most personally actionable category using this priority order: learning, then tool, then project, then content, then career, then market.",
                 "Strongly consider learning when a signal suggests a new concept, methodology, framework, architecture pattern, engineering practice, or evaluation approach. Learning is actionable, not passive.",
                 "Use tool for tools, models, workflows, libraries, frameworks, platforms, and observability systems that are worth evaluating directly.",
@@ -226,10 +417,21 @@ def build_signal_reference(signal):
 
 
 def validate_insight(raw_insight, signal_map, category, language, generation_mode):
-    title = compact_text(raw_insight.get("title"))
+    original_title = compact_text(raw_insight.get("title"))
     insight_type = compact_text(raw_insight.get("insight_type")).lower()
     priority = compact_text(raw_insight.get("priority")).lower()
-    reason = compact_text(raw_insight.get("reason"))
+    reason = normalize_reason(
+        reason=raw_insight.get("reason"),
+        title=original_title,
+        insight_type=insight_type,
+        language=language,
+    )
+    title = normalize_title_semantics(
+        title=original_title,
+        insight_type=insight_type,
+        reason=reason,
+        language=language,
+    )
     metadata = raw_insight.get("insight_metadata")
     metadata = metadata if isinstance(metadata, dict) else {}
 
@@ -329,6 +531,8 @@ def generate_ai_insights(category, language, signals, timeout_seconds=DEFAULT_TI
 
     if not insights:
         raise ValueError("AI response produced no valid insights after validation.")
+
+    insights = ensure_important_coverage(insights, language)
 
     diagnostics = {
         "generation_mode": "ai",
