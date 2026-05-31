@@ -25,12 +25,11 @@ Operations:
 /help - Show this help
 
 Natural Language:
-You can chat normally later for:
-- save memory
-- ask questions
-- review context
-- analyze topic
-- plan next step
+MVP free-text query tersedia untuk intent umum:
+- daily/dashboard
+- insight relevance
+- memory/handoff/context update
+- context health/opportunities/status
 
 Command semantics:
 - /dashboard = assistant OS home screen (combined view)
@@ -48,6 +47,7 @@ Command semantics:
 - /opportunities = tampilkan artifact assistant opportunities terbaru
 - /today = ringkasan fokus + top opportunities + next action
 - /status = tampilkan status runtime/source/pipeline
+- free-text = route intent read-only (rule-based, no LLM call)
 """
 
     await update.message.reply_text(message)

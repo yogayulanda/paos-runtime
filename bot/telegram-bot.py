@@ -31,6 +31,7 @@ from bot.commands.assistant_surface import handle_context
 from bot.commands.assistant_surface import handle_memory
 from bot.commands.assistant_surface import handle_handoff
 from bot.commands.assistant_surface import handle_promote_memory
+from bot.commands.assistant_query import handle_free_text_query
 
 
 TOKEN = TELEGRAM_BOT_TOKEN
@@ -103,9 +104,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_help(update)
         return
 
-    await update.message.reply_text(
-        "PAOS received your message. Natural language routing is not enabled yet.\n\nUse /help for commands."
-    )
+    await handle_free_text_query(update, context)
 
 
 app = ApplicationBuilder().token(TOKEN).build()
