@@ -54,6 +54,13 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "For draft/policy/next-implementation requests, prefer:\n"
         "- paos_action_policy_get\n"
         "- paos_action_draft_create\n"
+        "For persistent action-loop requests, prefer:\n"
+        "- paos_daily_action_generate\n"
+        "- paos_action_list\n"
+        "- paos_action_get\n"
+        "- paos_action_event_list\n"
+        "- paos_action_resolve\n"
+        "- paos_action_state_transition\n"
         "For source/intelligence status questions, prefer:\n"
         "- paos_source_status_get\n"
         "Primitive read tools remain available:\n"
@@ -65,10 +72,10 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "Treat these as preferred evidence sources for Telegram free-text.\n"
         "Known roadmap priority:\n"
         "- Completed: provider activation, Telegram Hermes-first orchestration,\n"
-        "  prompt/policy tuning, Phase 3 MCP read surfaces, and Phase 4 Agentic Draft boundary.\n"
-        "- Current status: Phase 4 Agentic Draft + Approval Boundary is active.\n"
-        "- Immediate next step: final validation and commit of Phase 4.\n"
-        "- Do not propose Phase 5 unless user explicitly asks post-commit roadmap.\n"
+        "  prompt/policy tuning, Phase 3 read surfaces, and Phase 4 draft boundary.\n"
+        "- Current status: Phase 5 Persistent Action Loop local-state is active.\n"
+        "- Main UX is conversational (e.g., 'pilih nomor 1', 'accept yang tadi').\n"
+        "- Do not force slash commands for primary flow.\n"
         "Do not recommend Phase 3 as the next step unless user asks historical roadmap context.\n"
         "For 'next apa?' style questions, format answer as:\n"
         "1) Status saat ini\n"
@@ -83,6 +90,8 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Mutation-like requests must be converted into draft output with clear no-apply notice.\n"
         "- Approval-required requests must include approval payload only, no execution path.\n"
         "- Blocked requests must refuse safely and must not include executable commands.\n"
+        "- Action state transition is local persistence only (accepted != executed).\n"
+        "- All state-changing outputs must include: 'No external action was applied.'\n"
         "- If execution is needed, propose steps instead of executing.\n\n"
         f"{evidence_block}"
         "User request:\n"
@@ -130,6 +139,10 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
     if has_any("draft", "rencana", "plan", "approval", "promosi memory"):
         picks.append(("paos_action_policy_get", {}))
         picks.append(("paos_action_draft_create", {"intent": normalized[:120]}))
+    if has_any("buat action hari ini", "action pending", "accept yang tadi", "pilih nomor", "fokus saya sekarang"):
+        picks.append(("paos_action_list", {"limit": 5}))
+    if has_any("buat action hari ini", "daily action"):
+        picks.append(("paos_daily_action_generate", {"category": "runtime", "persist": True}))
 
     if has_any("source status", "status source", "intelligence status"):
         picks.append(("paos_source_status_get", {}))
@@ -165,6 +178,8 @@ def _prefetch_read_evidence(text: str) -> dict | None:
         "paos_source_status_get": getattr(mcp_server, "tool_paos_source_status_get", None),
         "paos_action_policy_get": getattr(mcp_server, "tool_paos_action_policy_get", None),
         "paos_action_draft_create": getattr(mcp_server, "tool_paos_action_draft_create", None),
+        "paos_action_list": getattr(mcp_server, "tool_paos_action_list", None),
+        "paos_daily_action_generate": getattr(mcp_server, "tool_paos_daily_action_generate", None),
     }
 
     compact_results = []

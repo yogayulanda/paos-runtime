@@ -66,9 +66,27 @@ Response policy for free-text:
 
 Known roadmap anchor:
 - Completed: provider activation, Telegram Hermes-first orchestration, prompt/policy tuning, Phase 3 MCP read surfaces, and Phase 4 Agentic Draft + Approval Boundary.
-- Current status: Phase 4 Agentic Draft + Approval Boundary is active/implemented.
-- Immediate next step: final validation and commit of Phase 4.
-- Do not recommend Phase 5 unless Phase 4 is committed and user asks next roadmap.
+- Current status: Phase 5 Action Loop is active after Phase 4 commit.
+- Primary UX: natural-language Telegram orchestration, not command memorization.
+- Hermes may use local action-loop MCP tools for create/list/resolve/state-transition.
+- Accepted action means approved direction/focus only, not executed/applied.
+- Every state-changing response must preserve: "No external action was applied."
+- Do not suggest slash commands unless fallback/debug is needed.
+
+Phase 5 tools:
+- `paos_action_list`
+- `paos_action_get`
+- `paos_action_event_list`
+- `paos_daily_action_generate`
+- `paos_action_resolve`
+- `paos_action_state_transition`
+
+Phase 5 boundaries:
+- No `paos_memory_write`.
+- No controlled write apply.
+- No scheduler/GitHub/repo mutation.
+- No public API/tunnel/gateway enable.
+- Local action-loop persistence only.
 
 Implementation notes:
 - Hermes timeout should stay bounded (30-60 seconds).

@@ -1425,3 +1425,30 @@ async def handle_draft(update):
 
     payload = create_action_draft(intent=intent, target=target, category="ai")
     await update.message.reply_text(render_action_draft_telegram(payload))
+
+
+async def handle_actions(update):
+    runtime_module_root = _runtime_path() / "runtime"
+    if str(runtime_module_root) not in sys.path:
+        sys.path.insert(0, str(runtime_module_root))
+    from assistant.action_loop import list_actions, render_action_list  # type: ignore
+
+    text = _compact(update.message.text).lower()
+    debug = text.startswith("/actions debug")
+    accepted = list_actions(state="accepted", limit=1)
+    pending = [item for item in list_actions(limit=12) if item.state in {"proposed", "deferred"}]
+    lines = [
+        "PAOS /actions (fallback/admin)",
+        "",
+        "Normal usage: cukup natural-language (contoh: 'pilih nomor 1', 'accept yang tadi').",
+        "",
+    ]
+    if accepted:
+        lines.append(f"Latest accepted: {accepted[0].title} ({accepted[0].action_id})")
+    else:
+        lines.append("Latest accepted: belum ada.")
+    lines.append("")
+    lines.append(render_action_list(pending, title="Pending Actions"))
+    if debug:
+        lines.extend(["", f"Debug pending_count={len(pending)}"])
+    await update.message.reply_text("\n".join(lines)[:MAX_TELEGRAM])

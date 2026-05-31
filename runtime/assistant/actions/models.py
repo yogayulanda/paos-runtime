@@ -41,6 +41,12 @@ class ActionPolicy:
             "paos_source_status_get",
             "paos_action_policy_get",
             "paos_action_draft_create",
+            "paos_action_list",
+            "paos_action_get",
+            "paos_action_event_list",
+            "paos_daily_action_generate",
+            "paos_action_resolve",
+            "paos_action_state_transition",
         ]
     )
 

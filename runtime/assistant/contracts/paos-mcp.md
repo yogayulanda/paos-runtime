@@ -167,6 +167,22 @@ Behavior:
 - No direct Mnemosyne endpoint exposure.
 - No secrets in tool responses.
 
+## Phase 5 Action Loop Tools
+
+Tools are local-persistence only and must not execute external actions:
+- `paos_action_list(state?, limit?)`
+- `paos_action_get(action_id)`
+- `paos_action_event_list(action_id?)`
+- `paos_daily_action_generate(category?, persist?)`
+- `paos_action_resolve(reference?, ordinal?, query?)`
+- `paos_action_state_transition(action_id, transition, note?)`
+
+Invariants:
+- `accepted != executed`
+- `approved != applied`
+- local action-loop writes only (`assistant/action-loop/*`)
+- every state-changing flow remains no-apply/no-external-write
+
 ## Mnemosyne scope
 
 - Mnemosyne support is local SDK backend only.

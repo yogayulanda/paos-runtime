@@ -14,6 +14,18 @@ from assistant.brief import resolve_latest_assistant_brief
 from assistant.opportunities import resolve_latest_assistant_opportunities
 from assistant.memory import MemoryQuery, MemoryWrite, load_memory_provider
 from assistant.actions import create_action_draft, get_action_policy
+from assistant.action_loop import (
+    accept_action,
+    create_daily_action,
+    defer_action,
+    get_action as action_loop_get_action,
+    list_actions as action_loop_list_actions,
+    list_events as action_loop_list_events,
+    reject_action,
+    render_action_detail,
+    render_action_list,
+    resolve_action_reference,
+)
 
 from .schemas import (
     DEFAULT_CONTEXT_MAX_CHARS,
@@ -910,6 +922,124 @@ def tool_paos_action_draft_create(
         )
 
 
+def tool_paos_action_list(state: str | None = None, limit: int = 20) -> dict[str, Any]:
+    actions = action_loop_list_actions(state=state, limit=limit)
+    return {
+        "ok": True,
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.action-loop.list",
+        "summary": f"Listed {len(actions)} actions.",
+        "sections": {
+            "actions": [item.to_dict() for item in actions],
+            "rendered": render_action_list(actions, title="PAOS Action Inbox"),
+        },
+        "warnings": [],
+        "errors": [],
+    }
+
+
+def tool_paos_action_get(action_id: str) -> dict[str, Any]:
+    action = action_loop_get_action(action_id)
+    if not action:
+        return _error_payload(
+            errors=["action_not_found"],
+            generated_at=_now_iso(),
+            source="paos.mcp.action-loop.get",
+            summary="action not found",
+        )
+    return {
+        "ok": True,
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.action-loop.get",
+        "summary": "Action detail loaded.",
+        "sections": {"action": action.to_dict(), "rendered": render_action_detail(action)},
+        "warnings": [],
+        "errors": [],
+    }
+
+
+def tool_paos_action_event_list(action_id: str | None = None, limit: int = 30) -> dict[str, Any]:
+    events = action_loop_list_events(action_id=action_id, limit=limit)
+    return {
+        "ok": True,
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.action-loop.events",
+        "summary": f"Listed {len(events)} events.",
+        "sections": {"events": [item.to_dict() for item in events]},
+        "warnings": [],
+        "errors": [],
+    }
+
+
+def tool_paos_daily_action_generate(category: str = "runtime", persist: bool = True) -> dict[str, Any]:
+    result = create_daily_action(category=category, persist=persist, actor="mcp")
+    return {
+        "ok": result.ok,
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.action-loop.daily-generate",
+        "summary": result.message,
+        "sections": result.to_dict(),
+        "warnings": result.warnings,
+        "errors": result.errors,
+    }
+
+
+def tool_paos_action_resolve(
+    reference: str | None = None,
+    ordinal: int | None = None,
+    query: str | None = None,
+) -> dict[str, Any]:
+    action = resolve_action_reference(reference=reference or "", ordinal=ordinal, query=query)
+    if not action:
+        return _error_payload(
+            errors=["reference_not_resolved"],
+            generated_at=_now_iso(),
+            source="paos.mcp.action-loop.resolve",
+            summary="reference unresolved",
+        )
+    return {
+        "ok": True,
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.action-loop.resolve",
+        "summary": "Reference resolved.",
+        "sections": {"action": action.to_dict(), "rendered": render_action_detail(action)},
+        "warnings": [],
+        "errors": [],
+    }
+
+
+def tool_paos_action_state_transition(action_id: str, transition: str, note: str | None = None) -> dict[str, Any]:
+    normalized = str(transition or "").strip().lower()
+    if normalized == "accept":
+        normalized = "accepted"
+    if normalized == "reject":
+        normalized = "rejected"
+    if normalized == "defer":
+        normalized = "deferred"
+    if normalized == "accepted":
+        result = accept_action(action_id, actor="mcp", note=note or "")
+    elif normalized == "rejected":
+        result = reject_action(action_id, actor="mcp", note=note or "")
+    elif normalized == "deferred":
+        result = defer_action(action_id, actor="mcp", note=note or "")
+    else:
+        return _error_payload(
+            errors=[f"invalid transition: {transition}"],
+            generated_at=_now_iso(),
+            source="paos.mcp.action-loop.transition",
+            summary="transition rejected",
+        )
+    return {
+        "ok": result.ok,
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.action-loop.transition",
+        "summary": result.message,
+        "sections": result.to_dict(),
+        "warnings": result.warnings,
+        "errors": result.errors,
+    }
+
+
 def _load_fastmcp():
     try:
         from mcp.server.fastmcp import FastMCP
@@ -1059,6 +1189,52 @@ def create_mcp_server():
     def paos_source_status_get() -> dict[str, Any]:
         try:
             return tool_paos_source_status_get()
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_action_list")
+    def paos_action_list(state: str | None = None, limit: int = 20) -> dict[str, Any]:
+        try:
+            return tool_paos_action_list(state=state, limit=limit)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_action_get")
+    def paos_action_get(action_id: str) -> dict[str, Any]:
+        try:
+            return tool_paos_action_get(action_id=action_id)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_action_event_list")
+    def paos_action_event_list(action_id: str | None = None, limit: int = 30) -> dict[str, Any]:
+        try:
+            return tool_paos_action_event_list(action_id=action_id, limit=limit)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_daily_action_generate")
+    def paos_daily_action_generate(category: str = "runtime", persist: bool = True) -> dict[str, Any]:
+        try:
+            return tool_paos_daily_action_generate(category=category, persist=persist)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_action_resolve")
+    def paos_action_resolve(
+        reference: str | None = None,
+        ordinal: int | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return tool_paos_action_resolve(reference=reference, ordinal=ordinal, query=query)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_action_state_transition")
+    def paos_action_state_transition(action_id: str, transition: str, note: str | None = None) -> dict[str, Any]:
+        try:
+            return tool_paos_action_state_transition(action_id=action_id, transition=transition, note=note)
         except Exception as exc:
             return _error_payload(errors=[f"unexpected error: {exc}"])
 
