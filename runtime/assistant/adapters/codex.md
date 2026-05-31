@@ -1,44 +1,57 @@
 # Codex Adapter Guide
 
-Purpose: guide Codex to consume PAOS Assistant Context consistently before and during implementation work.
+## 1) SSH alias
 
-## Recommended usage
+Configure `~/.ssh/config` on WSL/PC:
 
-Before implementation tasks, load bounded context via official command:
+```sshconfig
+Host paos-vps
+  HostName <VPS_IP_OR_HOST>
+  User ubuntu
+  IdentityFile ~/.ssh/<your_key>
+  IdentitiesOnly yes
+```
 
-`venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai --section all --max-chars 12000`
+Validate:
 
-Then combine with direct repository inspection.
+```bash
+ssh paos-vps 'echo ok'
+ssh paos-vps 'cd /home/ubuntu/paos/paos-runtime && venv/bin/python runtime/assistant/jobs/run_paos_mcp.py --help'
+```
 
-## Working pattern
+## 2) Codex MCP config
 
-- Use assistant context to align constraints and operating guidance.
-- Confirm details by inspecting source files, contracts, and current git state.
-- Keep staging boundary explicit for each change set.
+Add in `~/.codex/config.toml`:
 
-## Section-focused reads
+```toml
+[mcp_servers.paos]
+command = "ssh"
+args = [
+  "paos-vps",
+  "cd /home/ubuntu/paos/paos-runtime && exec venv/bin/python runtime/assistant/jobs/run_paos_mcp.py"
+]
+```
 
-- `profile`: implementation constraints and project orientation.
-- `runtime`: latest execution/diagnostics status.
-- `intelligence`: latest digest/insight context for bounded awareness.
-- `memory`: temporary working memory when relevant.
+Restart Codex session after config changes.
 
-## Bounded context rule
+## 3) MCP smoke tests
 
-- Prefer targeted section reads over repeatedly loading full context.
-- Set `--max-chars` based on task scope and context budget.
-- Re-run with narrower section if truncation occurs.
+- `paos_health` args: `{"category":"ai","include_diagnostics":false}`
+- `paos_memory_write` args: `{"content":"PAOS MCP Codex test.","category":"ai"}`
+- `paos_memory_recall` args: `{"query":"PAOS MCP Codex test","category":"ai","limit":5}`
+- `paos_context_get` args: `{"category":"ai","section":"memory","format":"json","max_chars":2400}`
 
-## Source and memory boundaries
+Expected:
 
-- PAOS repo is durable source of truth.
-- Assistant context is supporting guidance, not replacement for repo evidence.
-- Memory boundary is `MemoryProvider` only.
-- Mnemosyne remains temporary/global working memory behind `MemoryProvider`.
+- `ok=true`
+- provider metadata included
+- recall returns written item
 
-## Guardrails
+## 4) Troubleshooting
 
-- Use the official command only for context consumption.
-- Do not read random internal PAOS runtime folders directly.
-- Do not bypass `MemoryProvider`.
-- Do not mutate runtime/memory from context-consumption workflow.
+- No MCP tools visible: verify TOML quoting and restart Codex.
+- SSH password prompt: key auth not set.
+- MCP call errors: run remote command directly via SSH and inspect stderr.
+- `fallback_used=true`: provider fallback engaged; inspect `configured_health`.
+
+Note: exact Codex UI wiring may vary by version; command pattern above is the stable requirement.

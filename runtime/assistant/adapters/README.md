@@ -1,55 +1,43 @@
 # PAOS Assistant Adapters
 
-Purpose: provide lightweight consumption guidance for external AI tools to read PAOS Assistant Context through one stable command.
+Purpose: operator guide for cross-tool context + memory access through PAOS MCP.
 
-## Official command
+## Architecture
 
-Use only the official context consumption command:
+- Claude Code / Codex (WSL/PC)
+- `->` SSH stdio command
+- `->` PAOS MCP server (`run_paos_mcp.py`)
+- `->` `MemoryProvider`
+- `->` `local` or `mnemosyne` backend
 
-`venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai`
+## MCP server command
 
-Supported options:
+- `cd /home/ubuntu/paos/paos-runtime && exec venv/bin/python runtime/assistant/jobs/run_paos_mcp.py`
 
-- `--format markdown|json`
-- `--section all|profile|memory|runtime|intelligence`
-- `--max-chars <number>`
+## Core MCP tools
 
-## Common usage examples
+- `paos_health`
+- `paos_memory_write`
+- `paos_memory_recall`
+- `paos_context_get`
 
-- Session bootstrap (broad context):
-  - `venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai --section all --max-chars 12000`
-- Profile-only context:
-  - `venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai --section profile --max-chars 6000`
-- Runtime status check:
-  - `venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai --section runtime --max-chars 4000`
-- Intelligence-only:
-  - `venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai --section intelligence --format json --max-chars 5000`
+## Quick validation sequence
 
-## Section guide
+1. `paos_health` with `{"category":"ai"}`
+2. `paos_memory_write` with test content
+3. `paos_memory_recall` with same query
+4. `paos_context_get` with `{"section":"memory","format":"json"}`
 
-- `all`: session bootstrap and broad planning.
-- `profile`: user/repo/project operating context.
-- `memory`: temporary working memory.
-- `runtime`: latest runtime and diagnostics state.
-- `intelligence`: latest digest and insight context.
+## Mnemosyne backend notes
 
-## Bounded context rule
+- Default provider remains `local` unless config is explicitly changed.
+- Use `provider: mnemosyne` with `fallback_provider: local` for validation.
+- Mnemosyne runs local on VPS behind `MemoryProvider` only.
+- Direct Mnemosyne REST/MCP SSE/public endpoint use is out of scope.
 
-- Prefer bounded section reads for focused tasks.
-- Use `--max-chars` to keep context within tool limits.
-- Use `--section all` only when broad context is required.
-- If output is truncated, request a narrower section and/or lower scope.
+## Security baseline
 
-## Source-of-truth and memory boundaries
-
-- PAOS repository files remain the durable source of truth.
-- Assistant context output is a bounded snapshot for consumption, not a replacement for repo evidence.
-- Memory access boundary is only through `MemoryProvider`.
-- Mnemosyne is temporary/global working memory behind `MemoryProvider` and must remain replaceable.
-
-## Consumer guardrails
-
-- Consume assistant context only through the official command.
-- Do not read random internal PAOS folders directly for context assembly.
-- Do not bypass `MemoryProvider` for memory access.
-- Do not mutate runtime/memory state from context consumption workflows.
+- Use SSH key auth.
+- Do not open public MCP ports.
+- Do not expose Mnemosyne directly.
+- Do not expose raw DB files.

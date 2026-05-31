@@ -1,11 +1,22 @@
 # PAOS MCP Contract
 
-Purpose: define the minimal Phase 3B stdio MCP bridge for cross-tool memory/context access.
+Purpose: define the Phase 3B/3C MCP bridge for cross-tool working memory and assistant context.
+
+## Architecture
+
+- Claude Code / Codex
+- `->` SSH stdio command
+- `->` `runtime/assistant/jobs/run_paos_mcp.py`
+- `->` PAOS MCP tools
+- `->` `MemoryProvider`
+- `->` `local` or `mnemosyne` backend
+
+PAOS MCP must not import Mnemosyne directly; backend selection remains in `MemoryProvider`.
 
 ## Transport
 
 - Supported transport: `stdio` only.
-- Public HTTP/SSE listeners are out of scope for this phase.
+- Public HTTP/SSE listeners are out of scope.
 
 ## Server entrypoint
 
@@ -28,19 +39,14 @@ Output:
 - `warnings`
 - `errors`
 
-Behavior:
-
-- Resolves category via assistant config resolution rules.
-- Uses assistant diagnostics and memory provider selection.
-
 ## Tool: `paos_memory_write`
 
 Input:
 
-- `content` (required, non-empty, bounded length)
+- `content` (required, non-empty, bounded)
 - `scope` (optional)
 - `category` (optional)
-- `metadata` (optional object, bounded serialized size)
+- `metadata` (optional object, bounded)
 
 Output:
 
@@ -54,7 +60,6 @@ Output:
 
 Behavior:
 
-- Uses `load_memory_provider()` and `MemoryWrite` contract.
 - Mutates memory only through `MemoryProvider.write()`.
 
 ## Tool: `paos_memory_recall`
@@ -78,7 +83,6 @@ Output:
 
 Behavior:
 
-- Uses `load_memory_provider()` and `MemoryQuery` contract.
 - Reads memory only through `MemoryProvider.recall()`.
 
 ## Tool: `paos_context_get`
@@ -104,18 +108,24 @@ Output:
 
 Behavior:
 
-- Executes official context consumption command:
+- Uses official context consumption command:
   - `runtime/assistant/jobs/print_assistant_context.py`
-- Preserves existing context resolution and truncation behavior.
 
 ## Security constraints
 
-- No public network listener.
-- No direct Mnemosyne endpoint exposure.
+- SSH key auth required for remote usage.
+- No public listener.
 - No raw DB/file API.
+- No direct Mnemosyne endpoint exposure.
 - No secrets in tool responses.
+
+## Mnemosyne scope
+
+- Mnemosyne support is local SDK backend only.
+- Direct Mnemosyne REST and MCP SSE are out of scope.
+- `fallback_provider: local` remains mandatory.
 
 ## Failure behavior
 
-- Tool failures return structured payloads with `ok=false`, `warnings`, and `errors`.
-- Provider fallback behavior remains owned by MemoryProvider factory.
+- Tools return structured `ok=false`, `warnings`, `errors`.
+- Provider fallback behavior remains owned by `MemoryProvider` factory.

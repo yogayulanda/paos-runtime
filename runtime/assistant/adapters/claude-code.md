@@ -1,39 +1,49 @@
 # Claude Code Adapter Guide
 
-Purpose: consistent Claude Code consumption of PAOS Assistant Context using the official read-only command.
+## 1) SSH alias
 
-## Recommended entrypoint
+Add to `~/.ssh/config` on WSL/PC:
 
-Run before starting repo work in a session:
+```sshconfig
+Host paos-vps
+  HostName <VPS_IP_OR_HOST>
+  User ubuntu
+  IdentityFile ~/.ssh/<your_key>
+  IdentitiesOnly yes
+```
 
-`venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai --section all --max-chars 12000`
+Validate:
 
-If the response is too large, switch to sectioned reads.
+```bash
+ssh paos-vps 'echo ok'
+ssh paos-vps 'cd /home/ubuntu/paos/paos-runtime && venv/bin/python runtime/assistant/jobs/run_paos_mcp.py --help'
+```
 
-## Section usage during long sessions
+## 2) Register MCP server
 
-- Start with `--section all` when bounded enough.
-- During implementation/debug cycles, prefer specific sections:
-  - `--section profile` for operating constraints and project context.
-  - `--section runtime` for latest run and diagnostics state.
-  - `--section intelligence` for latest digest/insight references.
-  - `--section memory` for temporary working memory.
+```bash
+claude mcp add paos --scope user -- ssh paos-vps 'cd /home/ubuntu/paos/paos-runtime && exec venv/bin/python runtime/assistant/jobs/run_paos_mcp.py'
+claude mcp list
+```
 
-## Bounded context practice
+If project-level config conflicts, remove duplicate `paos` entries or use one scope only.
 
-- Keep `--max-chars` explicit.
-- Use smaller bounds for iterative loops and targeted tasks.
-- Re-query a narrow section rather than reloading full context repeatedly.
+## 3) MCP smoke tests
 
-## Validation discipline
+- `paos_health` args: `{"category":"ai","include_diagnostics":false}`
+- `paos_memory_write` args: `{"content":"PAOS MCP Claude test.","category":"ai"}`
+- `paos_memory_recall` args: `{"query":"PAOS MCP Claude test","category":"ai","limit":5}`
+- `paos_context_get` args: `{"category":"ai","section":"memory","format":"json","max_chars":2400}`
 
-- Do not treat generated assistant context as code source.
-- Validate implementation decisions against actual repository files.
-- Use assistant context as operating guidance, then verify in repo.
+Expected:
 
-## Guardrails
+- `ok=true`
+- structured `warnings`/`errors` arrays
+- memory provider metadata in responses
 
-- Read-only consumption only.
-- Do not read internal PAOS folders directly for ad-hoc context assembly.
-- Do not bypass `MemoryProvider`.
-- Do not mutate runtime or memory through context-consumption flow.
+## 4) Troubleshooting
+
+- Startup/initialize failure: rerun `claude mcp list` and direct SSH command above.
+- SSH password prompts: key auth not configured; fix SSH config/agent.
+- `fallback_used=true`: configured provider unhealthy; inspect `configured_health` in `paos_health`.
+- Mnemosyne missing: install on VPS venv: `venv/bin/python -m pip install "mnemosyne-memory==3.1.2"`.
