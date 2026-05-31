@@ -1,0 +1,42 @@
+platform: github
+mode: public
+
+categories:
+  ai:
+    repositories:
+      - name: "microsoft_vscode"
+        repo: "microsoft/vscode"
+        enabled: true
+        source_type: "release"
+        reason: "Developer tooling signals relevant to AI coding workflow"
+        limit: 3
+        tags:
+          - "developer-tools"
+          - "ai-workflow"
+
+      - name: "openai_openai_python"
+        repo: "openai/openai-python"
+        enabled: true
+        source_type: "release"
+        reason: "OpenAI SDK release changes for integration awareness"
+        limit: 3
+        tags:
+          - "openai"
+          - "sdk"
+
+      - name: "modelcontextprotocol_spec"
+        repo: "modelcontextprotocol/specification"
+        enabled: true
+        source_type: "release"
+        reason: "MCP ecosystem changes that can impact agent interoperability"
+        limit: 3
+        tags:
+          - "mcp"
+          - "agents"
+
+  career:
+    repositories: []
+
+limits:
+  default_per_repo: 3
+  timeout_seconds: 20

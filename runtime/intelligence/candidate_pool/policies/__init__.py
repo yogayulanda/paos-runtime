@@ -20,6 +20,9 @@ def resolve_policy(item):
     platform = " ".join(str(item.get("platform") or "").split()).lower()
     source_type = " ".join(str(item.get("source_type") or "").split()).lower()
 
+    if platform == "github":
+        return GitHubPolicy()
+
     if platform == "threads" and source_type == "keyword":
         return KeywordPolicy()
 

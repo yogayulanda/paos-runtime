@@ -1,0 +1,2 @@
+"""GitHub public intelligence collector."""
+
