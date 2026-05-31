@@ -28,6 +28,14 @@ def collect_keyword_discovery(
         "rejected_posts": 0,
         "deduped_posts": 0,
     }
+    diagnostics = {
+        "queries_total": 0,
+        "queries_succeeded": 0,
+        "queries_empty": 0,
+        "queries_failed": 0,
+        "query_warnings": [],
+        "items_collected": 0,
+    }
     debug_events = []
     errors = []
 
@@ -37,6 +45,7 @@ def collect_keyword_discovery(
         per_keyword_limit = limit or get_default_limit(config, "keyword")
 
         for keyword in keywords:
+            diagnostics["queries_total"] += 1
             stats["queries_processed"] += 1
             raw_posts = []
             message = None
@@ -54,20 +63,43 @@ def collect_keyword_discovery(
                     debug_events.extend(event_batch)
             if message:
                 latest_event = event_batch[-1] if event_batch else {}
+                code = classify_threads_error(
+                    message,
+                    diagnostics=latest_event,
+                    authenticated=False,
+                )
+                diagnostics["queries_failed"] += 1
+                diagnostics["query_warnings"].append(
+                    {
+                        "query": keyword,
+                        "reason": "query_error",
+                        "code": code,
+                        "message": message,
+                    }
+                )
                 errors.append(
                     build_error(
                         source_type="keyword",
                         source_name=keyword,
-                        code=classify_threads_error(
-                            message,
-                            diagnostics=latest_event,
-                            authenticated=False,
-                        ),
+                        code=code,
                         message=message,
                     )
                 )
+                continue
             stats["raw_posts"] += len(raw_posts)
+            if not raw_posts:
+                diagnostics["queries_empty"] += 1
+                diagnostics["query_warnings"].append(
+                    {
+                        "query": keyword,
+                        "reason": "no_posts",
+                        "code": "NO_POSTS",
+                        "message": "No posts were returned for this query.",
+                    }
+                )
+                continue
 
+            accepted_for_query = 0
             for post in raw_posts:
                 score = relevance_score(keyword, post.get("text", ""))
                 if score < min_score:
@@ -96,13 +128,28 @@ def collect_keyword_discovery(
                 run_seen.add(key)
                 items.append(item)
                 stats["accepted_posts"] += 1
+                accepted_for_query += 1
+            if accepted_for_query > 0:
+                diagnostics["queries_succeeded"] += 1
+            else:
+                diagnostics["queries_empty"] += 1
+                diagnostics["query_warnings"].append(
+                    {
+                        "query": keyword,
+                        "reason": "no_usable_items",
+                        "code": "NO_USABLE_ITEMS",
+                        "message": "Posts were fetched but no usable items were collected for this query.",
+                    }
+                )
 
     written_paths = write_items(items)
+    diagnostics["items_collected"] = len(items)
 
     return {
         "items": items,
         "paths": written_paths,
         "stats": stats,
+        "diagnostics": diagnostics,
         "debug_events": debug_events,
         "errors": errors,
     }

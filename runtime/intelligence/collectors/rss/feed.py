@@ -151,6 +151,7 @@ def collect_rss_feeds(category=None, timeout_seconds=20):
         "feeds_loaded": 0,
         "feeds_succeeded": 0,
         "feeds_failed": 0,
+        "feeds_empty": 0,
         "raw_items": 0,
         "collected": 0,
         "written": 0,
@@ -159,12 +160,22 @@ def collect_rss_feeds(category=None, timeout_seconds=20):
         "skipped_invalid_time": 0,
         "accepted_items": 0,
     }
+    diagnostics = {
+        "feeds_total": 0,
+        "feeds_succeeded": 0,
+        "feeds_empty": 0,
+        "feeds_failed": 0,
+        "feed_warnings": [],
+        "items_written": 0,
+    }
     seen = set()
     rule = get_source_age_rule(category=category, source_family="rss") if category else None
 
     for feed in iter_feeds(config, selected_category=category):
+        diagnostics["feeds_total"] += 1
         stats["feeds_loaded"] += 1
         limit = int(feed.get("limit") or get_default_limit(config))
+        feed_name = compact_text(feed.get("name"))
         try:
             response = requests.get(
                 feed["url"],
@@ -197,25 +208,48 @@ def collect_rss_feeds(category=None, timeout_seconds=20):
                 accepted += 1
                 stats["written"] += 1
             stats["accepted_items"] += accepted
-            stats["feeds_succeeded"] += 1
             if accepted == 0:
+                stats["feeds_empty"] += 1
+                diagnostics["feeds_empty"] += 1
+                diagnostics["feed_warnings"].append(
+                    {
+                        "feed_name": feed_name,
+                        "reason": "no_usable_items",
+                        "code": "NO_USABLE_ITEMS",
+                        "message": "Feed returned entries but no usable items were collected.",
+                    }
+                )
                 skipped.append(f"{feed['name']} no usable feed entries")
+            else:
+                stats["feeds_succeeded"] += 1
+                diagnostics["feeds_succeeded"] += 1
         except Exception as exc:
             stats["feeds_failed"] += 1
+            diagnostics["feeds_failed"] += 1
+            diagnostics["feed_warnings"].append(
+                {
+                    "feed_name": feed_name,
+                    "reason": "fetch_error",
+                    "code": "FEED_FETCH_FAILED",
+                    "message": str(exc),
+                }
+            )
             errors.append(
                 {
                     "source_type": "feed",
-                    "source_name": compact_text(feed.get("name")),
+                    "source_name": feed_name,
                     "code": "FEED_FETCH_FAILED",
                     "message": str(exc),
                 }
             )
 
     paths = write_items(items) if items else []
+    diagnostics["items_written"] = len(items)
     return {
         "items": items,
         "paths": paths,
         "stats": stats,
+        "diagnostics": diagnostics,
         "errors": errors,
         "skipped": skipped,
     }

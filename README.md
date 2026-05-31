@@ -205,6 +205,28 @@ venv/bin/python runtime/intelligence/jobs/run_insights.py --category ai
 venv/bin/python bot/telegram-bot.py
 ```
 
+## Daily Scheduling (Official)
+
+Use the official wrapper script for scheduled runs:
+
+```bash
+bash scripts/daily-intelligence.sh
+```
+
+Recommended cron entry (example: every day at 08:00):
+
+```cron
+0 8 * * * /bin/bash /home/ubuntu/paos/paos-runtime/scripts/daily-intelligence.sh
+```
+
+This path runs the current intelligence pipeline (`run_daily_intelligence.py`) and writes logs to:
+
+- `.runtime/logs/daily-intelligence.log`
+
+Legacy note:
+
+- `workers/ai-digest.py` is deprecated and intentionally disabled. Do not use it in cron.
+
 ## Running Telegram
 
 Start the bot in a dedicated shell or `tmux` session:
@@ -231,6 +253,7 @@ PAOS externalizes the output contract so you can tune the runtime without editin
 - `runtime/intelligence/contracts/dashboard.md`
 - `runtime/intelligence/contracts/insight.md`
 - `runtime/intelligence/contracts/content-style.md`
+- `runtime/intelligence/contracts/source-unit-resilience.md`
 - `runtime/intelligence/prompts/insight-system.md`
 - `runtime/intelligence/prompts/insight-user.md`
 
