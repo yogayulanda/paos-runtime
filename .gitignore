@@ -21,6 +21,7 @@ venvs/
 .runtime/
 assistant/context/
 assistant/briefs/
+assistant/opportunities/
 runtime/assistant/memory/local.jsonl
 intelligence/raw/**
 intelligence/candidates/**

@@ -98,6 +98,27 @@ def main() -> None:
                 },
                 "warnings": [str(exc)],
             },
+            "assistant_opportunities": {
+                "markdown": {
+                    "path": None,
+                    "exists": False,
+                    "date": None,
+                    "modified_at": None,
+                    "size_bytes": None,
+                    "empty": None,
+                    "parseable": None,
+                },
+                "json": {
+                    "path": None,
+                    "exists": False,
+                    "date": None,
+                    "modified_at": None,
+                    "size_bytes": None,
+                    "empty": None,
+                    "parseable": None,
+                },
+                "warnings": [str(exc)],
+            },
         }
 
     write_status(payload)

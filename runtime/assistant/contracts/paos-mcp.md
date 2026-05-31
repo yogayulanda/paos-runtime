@@ -135,6 +135,30 @@ Behavior:
 - Read-only operation; does not mutate memory.
 - Must not import Mnemosyne directly.
 
+## Tool: `paos_opportunities_get`
+
+Input:
+
+- `category` (optional)
+- `format` (`json|markdown`, default `json`)
+
+Output:
+
+- `ok`
+- `category`
+- `category_source`
+- `format`
+- `content`
+- `opportunities`
+- `warnings`
+- `errors`
+
+Behavior:
+
+- Reads latest assistant opportunities artifact from `assistant/opportunities/<YYYY-MM-DD>/opportunities.{json|md}`.
+- Read-only operation; does not mutate memory.
+- Must not import Mnemosyne directly.
+
 ## Security constraints
 
 - SSH key auth required for remote usage.

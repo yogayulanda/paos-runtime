@@ -8,6 +8,7 @@ from assistant.brief import resolve_latest_assistant_brief
 from assistant.config import CONFIG_PATH, load_assistant_config
 from assistant.context import resolve_latest_assistant_context
 from assistant.memory import load_memory_provider
+from assistant.opportunities import resolve_latest_assistant_opportunities
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -187,6 +188,33 @@ def run_diagnostics(category: str) -> dict:
                 f"assistant_brief: latest brief is stale ({brief_json.date}); expected {today}"
             )
     warnings.extend(assistant_brief.warnings)
+
+    assistant_opportunities = resolve_latest_assistant_opportunities()
+    opportunities_json = assistant_opportunities.json
+    if assistant_opportunities.markdown.exists or opportunities_json.exists:
+        checks.append(
+            _ok(
+                "assistant_opportunities_resolution",
+                f"Resolved assistant opportunities markdown: {assistant_opportunities.markdown.path}; JSON: {opportunities_json.path}",
+                required=False,
+            )
+        )
+    else:
+        msg = "No assistant opportunities artifact found."
+        checks.append(_warn("assistant_opportunities_resolution", msg, required=False))
+        warnings.append(f"assistant_opportunities_resolution: {msg}")
+
+    if opportunities_json.exists:
+        if opportunities_json.empty:
+            warnings.append("assistant_opportunities: latest JSON opportunities artifact is empty")
+        if opportunities_json.parseable is False:
+            warnings.append("assistant_opportunities: latest JSON opportunities artifact is not parseable")
+        if opportunities_json.date and opportunities_json.date < today:
+            warnings.append(
+                f"assistant_opportunities: latest opportunities are stale ({opportunities_json.date}); expected {today}"
+            )
+    warnings.extend(assistant_opportunities.warnings)
+
     context_consumption = _context_consumption_diagnostics()
     if context_consumption["status"] == "failed":
         errors.extend([f"context_consumption: {item}" for item in context_consumption["errors"]])
@@ -251,6 +279,7 @@ def run_diagnostics(category: str) -> dict:
         "memory_provider": memory_selection.to_dict(),
         "assistant_context": assistant_context.to_dict(),
         "assistant_brief": assistant_brief.to_dict(),
+        "assistant_opportunities": assistant_opportunities.to_dict(),
         "context_consumption": context_consumption,
         "resolved_artifacts": artifacts.to_dict(),
     }
