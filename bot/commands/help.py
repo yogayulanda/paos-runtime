@@ -10,6 +10,7 @@ Main Commands:
 /digest - Lihat digest AI terbaru
 /brief - Lihat assistant brief terbaru
 /opportunities - Lihat assistant opportunities terbaru
+/today - Ringkasan harian assistant + opportunities
 /ops - Show VPS/runtime status
 /help - Show this help
 
@@ -27,6 +28,7 @@ Command semantics:
 - /digest = tampilkan artifact digest terbaru
 - /brief = tampilkan artifact assistant brief terbaru
 - /opportunities = tampilkan artifact assistant opportunities terbaru
+- /today = ringkasan fokus + top opportunities + next action
 - /status = tampilkan status runtime/source/pipeline
 """
 

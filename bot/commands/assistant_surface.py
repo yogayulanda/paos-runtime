@@ -7,6 +7,7 @@ from context.loader import load_env
 
 
 MAX_OPPORTUNITIES = 5
+MAX_TODAY_OPPORTUNITIES = 3
 MAX_TELEGRAM = 3900
 
 
@@ -288,6 +289,104 @@ def _render_opportunities_message(payload):
     return "\n".join(lines)[:MAX_TELEGRAM]
 
 
+def _extract_brief_focus_lines(brief_payload):
+    focus = _compact(brief_payload.get("focus_today"))
+    opportunities = (
+        brief_payload.get("opportunities")
+        if isinstance(brief_payload.get("opportunities"), dict)
+        else {}
+    )
+
+    focus_lines = []
+    if focus and not _is_generic_text(focus):
+        focus_lines.append(focus)
+
+    for candidate in (opportunities.get("build") or []) + (opportunities.get("review") or []):
+        if len(focus_lines) >= 2:
+            break
+        candidate_text = _compact(candidate)
+        if not candidate_text or candidate_text in focus_lines:
+            continue
+        focus_lines.append(candidate_text)
+
+    if not focus_lines:
+        focus_lines = [focus or "Belum ada fokus hari ini."]
+    return focus_lines[:2]
+
+
+def _render_today_message(brief_payload, opportunities_payload):
+    brief_exists = bool(brief_payload)
+    opportunities_exists = bool(opportunities_payload)
+
+    lines = ["🗓 PAOS Today", "", "Fokus Hari Ini"]
+    if brief_exists:
+        for idx, line in enumerate(_extract_brief_focus_lines(brief_payload), start=1):
+            lines.append(f"{idx}. {line}")
+    else:
+        lines.extend(
+            [
+                "1. Brief belum tersedia.",
+                "Jalankan:",
+                "venv/bin/python runtime/assistant/jobs/run_assistant_brief.py --category ai",
+            ]
+        )
+
+    lines.extend(["", "Top Opportunities"])
+    reduced_opps = []
+    if opportunities_exists:
+        opportunities = opportunities_payload.get("opportunities")
+        if isinstance(opportunities, list):
+            reduced_opps = _dedupe_opportunities(opportunities)
+        ordered = sorted(
+            [item for item in reduced_opps if isinstance(item, dict)],
+            key=lambda item: {"high": 0, "medium": 1, "low": 2}.get(_normalize_priority(item.get("priority")), 3),
+        )
+        top_items = ordered[:MAX_TODAY_OPPORTUNITIES]
+        if top_items:
+            for idx, item in enumerate(top_items, start=1):
+                title = _compact(item.get("title")) or "Tanpa judul"
+                next_action = _compact(item.get("next_action")) or "Belum ada next action."
+                lines.append(f"{idx}. {title}")
+                lines.append(f"   next: {next_action}")
+        else:
+            lines.append("Belum ada opportunities terbaru.")
+    else:
+        lines.extend(
+            [
+                "Opportunities belum tersedia.",
+                "Jalankan:",
+                "venv/bin/python runtime/assistant/jobs/run_assistant_opportunities.py --category ai",
+            ]
+        )
+
+    next_action = ""
+    if brief_exists:
+        next_action = _compact(brief_payload.get("suggested_next_action"))
+        if _is_generic_text(next_action):
+            next_action = ""
+    if not next_action and reduced_opps:
+        for item in reduced_opps:
+            candidate = _compact(item.get("next_action"))
+            if candidate:
+                next_action = candidate
+                break
+    if not next_action:
+        next_action = "Belum ada next action."
+
+    lines.extend(
+        [
+            "",
+            "Next Action",
+            next_action,
+            "",
+            "Status",
+            f"- Brief: {'ada' if brief_exists else 'missing'}",
+            f"- Opportunities: {'ada' if opportunities_exists else 'missing'}",
+        ]
+    )
+    return "\n".join(lines)[:MAX_TELEGRAM]
+
+
 async def handle_brief(update):
     brief_root = _runtime_path() / "assistant" / "briefs"
     json_path = _resolve_latest_file(brief_root, "assistant-brief.json")
@@ -314,3 +413,16 @@ async def handle_opportunities(update):
         )
         return
     await update.message.reply_text(_render_opportunities_message(payload))
+
+
+async def handle_today(update):
+    brief_root = _runtime_path() / "assistant" / "briefs"
+    opportunities_root = _runtime_path() / "assistant" / "opportunities"
+
+    brief_json_path = _resolve_latest_file(brief_root, "assistant-brief.json")
+    opportunities_json_path = _resolve_latest_file(opportunities_root, "opportunities.json")
+
+    brief_payload = _read_json(str(brief_json_path) if brief_json_path else None)
+    opportunities_payload = _read_json(str(opportunities_json_path) if opportunities_json_path else None)
+
+    await update.message.reply_text(_render_today_message(brief_payload, opportunities_payload))

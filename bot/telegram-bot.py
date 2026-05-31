@@ -24,6 +24,7 @@ from bot.commands.intelligence import handle_update
 from bot.commands.intelligence import handle_insight_callback
 from bot.commands.assistant_surface import handle_brief
 from bot.commands.assistant_surface import handle_opportunities
+from bot.commands.assistant_surface import handle_today
 
 
 TOKEN = TELEGRAM_BOT_TOKEN
@@ -42,6 +43,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text.startswith("/opportunities"):
         await handle_opportunities(update)
+        return
+
+    if text.startswith("/today"):
+        await handle_today(update)
         return
 
     if text.startswith("/brief"):
