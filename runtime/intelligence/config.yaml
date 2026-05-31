@@ -8,6 +8,19 @@ intelligence:
         - threads
         - rss
         - keyword
+      source_age_rules:
+        rss:
+          max_age_days: 7
+          when_time_missing: skip
+        threads:
+          max_age_days: 10
+          when_time_missing: allow_with_warning
+        github:
+          max_age_days: 30
+          when_time_missing: allow_with_warning
+        jobs:
+          max_age_days: 3
+          when_time_missing: skip
 
     career:
       description: "remote work, job market, personal branding, career growth"
@@ -15,6 +28,19 @@ intelligence:
         - threads
         - rss
         - keyword
+      source_age_rules:
+        rss:
+          max_age_days: 7
+          when_time_missing: skip
+        threads:
+          max_age_days: 10
+          when_time_missing: allow_with_warning
+        github:
+          max_age_days: 30
+          when_time_missing: allow_with_warning
+        jobs:
+          max_age_days: 3
+          when_time_missing: skip
 
 insights:
   language: id

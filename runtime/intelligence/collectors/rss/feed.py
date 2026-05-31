@@ -12,6 +12,8 @@ from collectors.rss.models import get_default_limit
 from collectors.rss.models import iter_feeds
 from collectors.rss.models import load_rss_config
 from collectors.rss.models import write_items
+from source_age_rules import evaluate_source_item_age
+from source_age_rules import get_source_age_rule
 
 
 USER_AGENT = "PAOS-Intelligence/1.0"
@@ -150,9 +152,15 @@ def collect_rss_feeds(category=None, timeout_seconds=20):
         "feeds_succeeded": 0,
         "feeds_failed": 0,
         "raw_items": 0,
+        "collected": 0,
+        "written": 0,
+        "skipped_too_old": 0,
+        "skipped_missing_time": 0,
+        "skipped_invalid_time": 0,
         "accepted_items": 0,
     }
     seen = set()
+    rule = get_source_age_rule(category=category, source_family="rss") if category else None
 
     for feed in iter_feeds(config, selected_category=category):
         stats["feeds_loaded"] += 1
@@ -168,6 +176,16 @@ def collect_rss_feeds(category=None, timeout_seconds=20):
             stats["raw_items"] += len(entries)
             accepted = 0
             for entry in entries[:limit]:
+                stats["collected"] += 1
+                decision = evaluate_source_item_age(entry.get("published_at"), rule)
+                if not decision.accepted:
+                    if decision.reason == "too_old":
+                        stats["skipped_too_old"] += 1
+                    elif decision.reason == "missing_time":
+                        stats["skipped_missing_time"] += 1
+                    elif decision.reason == "invalid_time":
+                        stats["skipped_invalid_time"] += 1
+                    continue
                 item = normalize_feed_item(feed, entry)
                 if not item:
                     continue
@@ -177,6 +195,7 @@ def collect_rss_feeds(category=None, timeout_seconds=20):
                 seen.add(key)
                 items.append(item)
                 accepted += 1
+                stats["written"] += 1
             stats["accepted_items"] += accepted
             stats["feeds_succeeded"] += 1
             if accepted == 0:

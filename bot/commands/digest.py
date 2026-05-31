@@ -15,8 +15,8 @@ async def handle_digest(update):
 
     command = (
         f"{runtime_path}/venv/bin/python "
-        f"{runtime_path}/workers/ai-digest.py "
-        f">> {runtime_path}/logs/ai-digest.log 2>&1"
+        f"{runtime_path}/runtime/intelligence/jobs/run_daily_intelligence.py --category ai "
+        f">> {runtime_path}/logs/daily-intelligence.log 2>&1"
     )
 
     subprocess.run(command, shell=True)
