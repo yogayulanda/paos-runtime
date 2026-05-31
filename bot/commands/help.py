@@ -6,8 +6,8 @@ Main Commands:
 /profile - Show personal context summary
 /insight - Lihat dashboard harian PAOS
 /update - Ambil data terbaru lalu tampilkan dashboard
-/status - Cek status pipeline terakhir
-/digest - Legacy digest command
+/status - Status runtime/source/pipeline terbaru
+/digest - Lihat digest AI terbaru
 /ops - Show VPS/runtime status
 /help - Show this help
 
@@ -19,7 +19,11 @@ You can chat normally later for:
 - analyze topic
 - plan next step
 
-Legacy commands may still exist during migration.
+Command semantics:
+- /update = jalankan pipeline harian + tampilkan dashboard
+- /insight = tampilkan dashboard insight terbaru
+- /digest = tampilkan artifact digest terbaru
+- /status = tampilkan status runtime/source/pipeline
 """
 
     await update.message.reply_text(message)

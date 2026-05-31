@@ -14,3 +14,6 @@ Avoid unfinished sentences.
 Generate structured output that can be rendered into PAOS Daily Intelligence.
 Return only what the user can actually use.
 Prefer accurate empty states only for inactive/irrelevant sources.
+Ringkasan harus mudah dipahami, bukan headline padat.
+Untuk kategori AI, fokus pada dampak ke workflow coding, tooling agent/runtime, evaluasi model, dan penggunaan engineering praktis.
+Hindari ringkasan berita generik tanpa takeaway yang bisa dipakai.

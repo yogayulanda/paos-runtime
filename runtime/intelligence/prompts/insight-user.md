@@ -53,3 +53,9 @@ Aturan penting:
 - Hindari kalimat menggantung.
 - Preview harus utuh dan jelas. Jangan potong judul/frasa/kalimat.
 - Jika ragu, tampilkan kalimat utuh atau pindahkan detail ke section detail.
+- `daily_summary` target: 3-5 line pendek, mudah dipahami, tidak padat seperti headline.
+- `daily_summary` wajib memuat: apa yang terjadi, kenapa penting, artinya untuk PAOS/kamu, dan takeaway praktis.
+- Untuk kategori `ai`, hubungkan summary ke workflow coding AI, tooling agent/runtime, evaluasi model, dan pemakaian engineering nyata.
+- `priority_actions.title` harus spesifik dan actionable.
+- `important_signals.meaning` harus menjelaskan tren, bukan hanya mengulang judul.
+- `opportunities.why_relevant` harus jelas kenapa penting untuk kondisi kerja saat ini.

@@ -24,9 +24,9 @@ Preview/detail rules:
 - section_id: `daily_summary`
 - user_facing_label: `Ringkasan Hari Ini`
 - purpose: Briefing singkat tentang hari ini.
-- what belongs here: 2-4 kalimat kenapa hari ini penting untuk kamu.
+- what belongs here: 3-5 line pendek atau 2-4 paragraf pendek yang menjawab: apa yang terjadi, kenapa penting, artinya untuk PAOS/kamu, dan takeaway praktis.
 - what does not belong here: metadata internal, daftar panjang, jargon tanpa konteks.
-- main_preview_format: 2-4 kalimat pendek.
+- main_preview_format: 3-5 line pendek, mudah dipahami.
 - detail_view_format: versi penjelasan penuh.
 - button_label: `Kenapa ini penting`
 - max_preview_items: 1
@@ -36,7 +36,7 @@ Preview/detail rules:
 - section_id: `priority_actions`
 - user_facing_label: `Yang Perlu Kamu Lakukan`
 - purpose: Aksi konkret yang sebaiknya kamu kerjakan.
-- what belongs here: action title + alasan + next step.
+- what belongs here: action title yang spesifik + alasan + next step yang langsung bisa dilakukan.
 - what does not belong here: opini umum tanpa aksi.
 - main_preview_format: daftar nomor judul aksi lengkap.
 - detail_view_format: title + why_it_matters + next_step + source refs.
@@ -48,7 +48,7 @@ Preview/detail rules:
 - section_id: `important_signals`
 - user_facing_label: `Yang Lagi Penting`
 - purpose: Sinyal/tren penting saat ini.
-- what belongs here: sinyal tren + makna + alasan dipantau.
+- what belongs here: sinyal tren + makna tren + dampaknya ke workflow engineering.
 - what does not belong here: instruksi aksi langsung.
 - main_preview_format: daftar nomor judul sinyal lengkap.
 - detail_view_format: title + meaning + why_watch + source refs.
@@ -60,7 +60,7 @@ Preview/detail rules:
 - section_id: `opportunities`
 - user_facing_label: `Peluang untuk Kamu`
 - purpose: Peluang yang relevan untuk dimanfaatkan.
-- what belongs here: project/content/career/networking/learning/business opportunities.
+- what belongs here: project/content/career/networking/learning/business opportunities dengan alasan kenapa relevan sekarang.
 - what does not belong here: peluang dipaksakan tanpa sinyal kuat.
 - main_preview_format: ringkasan pendek per tipe peluang.
 - detail_view_format: type + title + why_relevant + suggested_action + source refs.
@@ -69,7 +69,7 @@ Preview/detail rules:
 - empty_state: `Belum ada peluang yang cukup kuat hari ini.`
 - note_semantics:
   - `Peluang untuk Kamu` = peluang tindakan berikutnya yang actionable.
-  - Jika `Bahan Konten & Branding` ada, line `Konten` di preview gunakan framing ringan (mis. `Ada bahan ringan untuk post pendek ...`), bukan empty state.
+  - Jika `Bahan Konten & Branding` ada dan `Konten` masih kosong/generik, line `Konten` di preview harus diturunkan langsung dari bahan tersebut dalam 1 kalimat singkat (mis. `Post pendek tentang model yang pintar vs model yang tahu kapan harus ragu.`).
   - `Belum ada peluang konten kuat hari ini.` hanya dipakai jika benar-benar tidak ada bahan konten.
 
 ### 5) Bahan Konten & Branding
@@ -78,7 +78,7 @@ Preview/detail rules:
 - purpose: Materi siap-post dan angle branding.
 - what belongs here: angle, why_post, threads_ready, x_ready, linkedin_angle.
 - what does not belong here: instruksi seperti “Siapkan konten”.
-- main_preview_format: angle terbaik atau empty state.
+- main_preview_format: angle terbaik yang konkret atau empty state.
 - detail_view_format: format lengkap copy-paste ready.
 - button_label: `Bahan post`
 - max_preview_items: 1

@@ -172,6 +172,22 @@ def _split_sentences(text):
     return parts
 
 
+def _extract_summary_preview(summary_body):
+    lines = []
+    for raw_line in summary_body.splitlines():
+        stripped = _compact(raw_line)
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        stripped = stripped.lstrip("- ").strip()
+        if stripped:
+            lines.append(stripped)
+    if lines:
+        return lines[:5]
+    return _split_sentences(summary_body)[:4]
+
+
 def _extract_marked_titles(body):
     titles = []
     seen = set()
@@ -217,6 +233,48 @@ def _has_content_material(content_body):
         return False
     lowered = body.lower()
     return "belum ada bahan post yang cukup kuat hari ini." not in lowered
+
+
+def _derive_content_opportunity_from_material(content_body):
+    body = _compact(content_body)
+    if not body:
+        return ""
+
+    angle = ""
+    for title in _extract_marked_titles(content_body):
+        if ":" not in title:
+            continue
+        key, value = [part.strip() for part in title.split(":", 1)]
+        if _compact(key).lower() in {"angle", "hook", "opini", "tema"} and _compact(value):
+            angle = _compact(value)
+            break
+
+    for line in content_body.splitlines():
+        if angle:
+            break
+        stripped = _compact(line)
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.lower().startswith("angle:"):
+            angle = _compact(stripped.split(":", 1)[1])
+            break
+        if stripped.startswith("- "):
+            stripped = _compact(stripped[2:])
+            if ":" in stripped:
+                left, right = stripped.split(":", 1)
+                if _compact(left).lower() in {"angle", "hook", "opini", "tema"} and _compact(right):
+                    angle = _compact(right)
+                    break
+        angle = stripped
+        break
+
+    angle = angle.strip(" '\"“”‘’")
+    if not angle or angle.lower() == "belum ada bahan post yang cukup kuat hari ini.":
+        return ""
+
+    if len(angle) > 96:
+        angle = f"{angle[:93].rstrip()}..."
+    return f"Post pendek tentang {angle}."
 
 
 def _parse_source_coverage_buckets(source_coverage_body):
@@ -290,10 +348,12 @@ def build_paos_dashboard_payload(path, category="ai", date=None):
     markdown_text = Path(path).read_text(encoding="utf-8")
     sections = parse_markdown_sections(markdown_text)
     section_map = {key: sections.get(label, "") for label, key in PAOS_SECTIONS}
+    # Backward-compatible heading alias
+    if not _compact(section_map.get("content")):
+        section_map["content"] = sections.get("Bahan Konten", "")
 
     summary_body = section_map.get("summary", "")
-    summary_sentences = _split_sentences(summary_body)
-    summary_preview = summary_sentences[:4] or ["Belum ada ringkasan kuat hari ini."]
+    summary_preview = _extract_summary_preview(summary_body) or ["Belum ada ringkasan kuat hari ini."]
 
     actions_body = section_map.get("actions", "")
     signals_body = section_map.get("signals", "")
@@ -313,8 +373,16 @@ def build_paos_dashboard_payload(path, category="ai", date=None):
     opportunity_preview = _extract_opportunity_preview(opportunities_body)
     content_preview = _extract_content_preview(content_body)
     content_exists = _has_content_material(content_body)
-    if content_exists and "belum ada peluang konten kuat hari ini." in _compact(opportunity_preview.get("Konten", "")).lower():
-        opportunity_preview["Konten"] = "Ada bahan ringan untuk post pendek dari angle hari ini."
+    konten_preview = _compact(opportunity_preview.get("Konten", ""))
+    konten_preview_lower = konten_preview.lower()
+    konten_is_empty_or_generic = (
+        not konten_preview
+        or "belum ada peluang konten kuat hari ini." in konten_preview_lower
+        or "ada bahan ringan untuk post pendek" in konten_preview_lower
+    )
+    if content_exists and konten_is_empty_or_generic:
+        derived_opportunity = _derive_content_opportunity_from_material(content_body)
+        opportunity_preview["Konten"] = derived_opportunity or "Ada bahan post pendek yang bisa dipakai hari ini."
     if not content_exists and "Konten" not in opportunity_preview:
         opportunity_preview["Konten"] = "Belum ada peluang konten kuat hari ini."
 
@@ -488,17 +556,66 @@ def _run_update_pipeline(runtime_path, category="ai"):
 
 async def handle_status(update):
     runtime_path = _runtime_path()
+    daily_status = _read_json(runtime_path / ".runtime" / "runs" / "daily-intelligence" / "latest.json")
+    rss_status = _read_json(runtime_path / ".runtime" / "runs" / "rss-collector" / "latest.json")
+    threads_status = _read_json(runtime_path / ".runtime" / "runs" / "threads-account" / "latest.json")
     digest_status = _read_json(runtime_path / ".runtime" / "runs" / "digest" / "latest.json")
     insight_status = _read_json(runtime_path / ".runtime" / "runs" / "insights" / "latest.json")
-    parts = [
-        "Status pipeline terakhir:",
-        _status_line("Digest", digest_status),
-        _status_line("Insight", insight_status),
-    ]
+
+    digest_path = _resolve_latest_markdown_path(runtime_path / "intelligence" / "digests", category="ai")
+    insight_path = _resolve_latest_markdown_path(runtime_path / "intelligence" / "insights", category="ai")
+    status_source = {}
+    if insight_path:
+        payload = build_paos_dashboard_payload(path=insight_path, category="ai")
+        status_source = payload.get("status_source") or {}
+
+    rss_diag = (rss_status or {}).get("diagnostics") or {}
+    feed_warnings = rss_diag.get("feed_warnings") or []
+    threads_diag = (threads_status or {}).get("diagnostics") or {}
+
+    parts = ["📊 Status Runtime PAOS"]
+    parts.extend(
+        [
+            "",
+            "Daily Intelligence",
+            f"- status: {(daily_status or {}).get('status', 'belum ada data')}",
+            f"- started: {(daily_status or {}).get('started_at', '-')}",
+            f"- finished: {(daily_status or {}).get('finished_at', '-')}",
+            f"- category: {(daily_status or {}).get('category', '-')}",
+            "",
+            "RSS",
+            f"- status: {(rss_status or {}).get('status', 'belum ada data')}",
+            f"- feeds: {(rss_status or {}).get('feeds_loaded', rss_diag.get('feeds_total', '-'))}",
+            f"- items_written: {rss_diag.get('items_written', (rss_status or {}).get('items_collected', '-'))}",
+            f"- warnings: {len(feed_warnings)}",
+            "",
+            "Threads Account",
+            f"- status: {(threads_status or {}).get('status', 'belum ada data')}",
+            f"- succeeded/empty/failed: {threads_diag.get('accounts_succeeded', '-')}/{threads_diag.get('accounts_empty', '-')}/{threads_diag.get('accounts_failed', '-')}",
+            f"- items_collected: {(threads_status or {}).get('items_collected', threads_diag.get('items_collected', '-'))}",
+            "",
+            "Digest",
+            f"- latest: {str(digest_path) if digest_path else 'belum ada data'}",
+            "",
+            "Insight",
+            f"- latest: {str(insight_path) if insight_path else 'belum ada data'}",
+            "",
+            "Legacy Digest Worker",
+            "- status: deprecated/inactive (workers/ai-digest.py tidak dipakai)",
+            "",
+            "Source Status",
+            f"- Threads Account: {status_source.get('Threads Account', 'belum ada data')}",
+            f"- Threads Keyword: {status_source.get('Threads Keyword', 'belum ada data')}",
+            f"- RSS Feed: {status_source.get('RSS Feed', 'belum ada data')}",
+            f"- GitHub: {status_source.get('GitHub', 'belum ada data')}",
+            f"- LinkedIn: {status_source.get('LinkedIn', 'belum ada data')}",
+            f"- Lowongan: {status_source.get('Lowongan', 'belum ada data')}",
+        ]
+    )
     stale_note = _stale_insight_note(digest_status, insight_status)
     if stale_note:
-        parts.append(stale_note)
-    message = "\n\n".join(parts)
+        parts.extend(["", stale_note])
+    message = "\n".join(parts)
     await update.message.reply_text(message[:MAX_TELEGRAM])
 
 

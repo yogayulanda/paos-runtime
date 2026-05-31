@@ -762,16 +762,20 @@ def synthesize_dashboard_from_signals(signals, source_status):
 
     summary = []
     if simplified:
-        summary.append(
-            "Hari ini fokus AI coding bergeser ke workflow yang lebih siap dipakai: model harus lebih jujur saat ragu, biaya harus lebih terlihat, dan eksperimen harus lebih terukur."
-        )
-        top_titles = [item["important_title"] for item in simplified[:2]]
-        if any("workflow" in title.lower() for title in top_titles):
-            summary.append("Tooling agent mulai makin matang, jadi keputusan model sekarang perlu dilihat bersama observability, guardrail, dan beban review.")
-        if any("codex" in title.lower() or "coding" in title.lower() for title in top_titles + [item["priority_title"] for item in simplified]):
-            summary.append("Buat kamu yang bangun PAOS atau workflow coding serupa, ini waktu yang pas untuk membandingkan model di task nyata, bukan di demo singkat.")
+        lead = simplified[0]
+        lead_title = compact_text(lead.get("important_title") or lead.get("priority_title"))
+        summary = [
+            "Hari ini sinyal AI coding makin condong ke workflow yang bisa dipakai di kerja nyata, bukan sekadar demo model baru.",
+            "Yang paling menonjol: model dan tooling mulai dinilai dari kejujuran saat ragu, kestabilan task panjang, serta observability biaya dan sandboxing agent.",
+            "Artinya buat PAOS: evaluasi tidak cukup dari output akhir. Kamu perlu cek apakah prosesnya stabil, terukur, dan bisa diulang di runtime kamu.",
+            f"Takeaway praktis: pakai sinyal `{lead_title or 'utama hari ini'}` sebagai acuan untuk uji checklist kecil pada task coding panjang minggu ini.",
+        ]
     if not summary:
-        summary = ["Hari ini ada beberapa sinyal AI workflow yang relevan untuk keputusan kerja kamu."]
+        summary = [
+            "Hari ini ada beberapa sinyal AI workflow yang relevan untuk kerja kamu.",
+            "Fokus utamanya bukan hanya model baru, tapi kualitas proses kerja saat model dipakai di task nyata.",
+            "Takeaway: lanjutkan evaluasi kecil yang bisa diulang agar keputusan tooling tetap berbasis hasil, bukan hype.",
+        ]
 
     priority_actions = []
     for signal, item in zip(relevant[:3], simplified[:3]):

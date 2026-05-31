@@ -29,26 +29,31 @@ Panduan pemetaan section:
 - Angle kuat untuk opini -> Bahan Konten & Branding.
 
 A. Ringkasan Hari Ini
-- 2-4 kalimat pendek.
-- Jelaskan kenapa hari ini penting untuk kamu.
+- 3-5 line pendek atau 2-4 paragraf pendek.
+- Wajib menjawab: apa yang terjadi, kenapa penting, artinya untuk PAOS/kamu, dan takeaway praktis.
+- Untuk kategori `ai`, hubungkan ke workflow coding AI, tooling agent/runtime, evaluasi model, dan relevansi praktis ke PAOS/Forge.
 - Jangan tampilkan metadata internal/path.
 
 B. Yang Perlu Kamu Lakukan
 - Meaning: langkah berikut yang actionable.
 - Harus jawab: apa yang dilakukan, kenapa penting, langkah konkret.
 - Bukan top news/generic observation.
+- Judul harus spesifik (hindari judul generik seperti "Pantau perkembangan AI").
 - Required item: `title`, `why_it_matters`, `next_step`, `source_refs`.
 
 C. Yang Lagi Penting
 - Meaning: sinyal/tren penting yang sedang naik.
 - Bukan to-do list.
 - Hindari judul berawalan kata kerja aksi (Pelajari/Coba/Evaluasi/Bandingkan/Bangun).
+- `meaning` harus menjelaskan tren, bukan sekadar mengulang judul.
 - Required item: `title`, `meaning`, `why_watch`, `source_refs`.
 
 D. Peluang untuk Kamu
 - Meaning: peluang project/content/career/networking/learning/business.
 - Jangan dipaksakan jika sinyal lemah.
 - Jika ada `content_branding`, jangan kontradiktif dengan peluang konten (hindari kalimat `Belum ada peluang konten kuat hari ini`).
+- Jika `content_branding` ada tapi line peluang konten kosong/generik, dashboard boleh menurunkan 1 kalimat peluang konten singkat secara deterministik dari teks `angle` (tanpa LLM tambahan).
+- `why_relevant` harus jelas kenapa peluang ini penting untuk kerja PAOS saat ini.
 - Required item: `type`, `title`, `why_relevant`, `suggested_action`, `source_refs`.
 
 E. Bahan Konten & Branding
