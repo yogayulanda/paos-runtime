@@ -1,0 +1,4 @@
+FROM nousresearch/hermes-agent:latest
+
+# Ensure the interpreter used by Hermes MCP stdio command can run PAOS MCP.
+RUN uv pip install --python /opt/hermes/.venv/bin/python --system --no-cache-dir PyYAML mcp

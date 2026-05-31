@@ -13,10 +13,14 @@ services:
   hermes:
     container_name: paos-hermes
     restart: unless-stopped
-    image: alpine
-    command: tail -f /dev/null
+    build:
+      context: .
+      dockerfile: docker/hermes/Dockerfile.hermes-paos
+    image: paos-hermes-agent:local
+    command: gateway run
     env_file:
       - .env
     volumes:
-      - ./data:/data
+      - ./data/hermes:/opt/data
+      - ./:/workspace/paos-runtime:ro
       - ../personal-context:/workspace/personal-context
