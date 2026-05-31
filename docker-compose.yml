@@ -18,6 +18,8 @@ services:
       dockerfile: docker/hermes/Dockerfile.hermes-paos
     image: paos-hermes-agent:local
     command: sleep infinity
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     volumes:

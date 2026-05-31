@@ -15,6 +15,12 @@ Primary tools for Hermes:
 - `paos_brief_get`
 - `paos_opportunities_get`
 - `paos_memory_recall`
+- `paos_dashboard_get`
+- `paos_daily_get`
+- `paos_context_health_get`
+- `paos_handoff_get`
+- `paos_runtime_status_get`
+- `paos_source_status_get`
 
 Context fallback (if MCP is not wired in Hermes yet):
 
@@ -41,8 +47,11 @@ Context fallback (if MCP is not wired in Hermes yet):
 
 ## Notes for dashboard/daily surfaces
 
-- There is no dedicated MCP tool named `paos_dashboard` or `paos_daily` in current runtime.
-- Hermes can assemble dashboard/daily-equivalent summaries from:
+- Prefer dedicated read tools:
+  - `paos_dashboard_get`
+  - `paos_daily_get`
+  - `paos_context_health_get`
+- Fallback composition (when needed):
   - `paos_context_get` (`section=all|runtime|intelligence|memory`)
   - `paos_brief_get`
   - `paos_opportunities_get`

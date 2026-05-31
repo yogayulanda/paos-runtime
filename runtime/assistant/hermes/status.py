@@ -75,7 +75,7 @@ def hermes_mcp_paos_status(timeout_seconds: int = 12) -> str:
         "docker",
         "exec",
         "paos-hermes",
-        "/opt/hermes/.venv/bin/hermes",
+        "/workspace/paos-runtime/runtime/assistant/hermes/run_hermes.sh",
         "mcp",
         "test",
         "paos",

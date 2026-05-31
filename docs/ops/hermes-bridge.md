@@ -61,3 +61,34 @@ Dashboard/daily-equivalent summaries are composed from brief/context/opportuniti
 - Do not add public listeners.
 - Do not add scheduler changes for Hermes.
 - Do not trigger controlled write apply from Hermes bridge validation.
+
+## Swappable LLM provider config
+
+Canonical Hermes provider variables (source of truth in `data/hermes/.env`):
+
+- `HERMES_LLM_BASE_URL`
+- `HERMES_LLM_API_KEY`
+- `HERMES_LLM_MODEL`
+
+PAOS/local summarize aliases (kept for runtime compatibility):
+
+- `LLM_BASE_URL=$HERMES_LLM_BASE_URL`
+- `LLM_API_KEY=$HERMES_LLM_API_KEY`
+- `LLM_MODEL=$HERMES_LLM_MODEL`
+
+Hermes current-build compatibility layer (runtime-only):
+
+- `OPENAI_BASE_URL=$HERMES_LLM_BASE_URL`
+- `OPENAI_API_KEY=$HERMES_LLM_API_KEY`
+- `model.provider=openai-api`
+- `model.default=$HERMES_LLM_MODEL`
+- `model.api_mode=chat_completions`
+
+Notes:
+
+- `openai-api` here means OpenAI-compatible protocol routing, not a hard dependency on OpenAI.
+- Provider swaps should only require changing `HERMES_LLM_BASE_URL`, `HERMES_LLM_API_KEY`, and `HERMES_LLM_MODEL`.
+- PAOS application code should not require provider-specific variable names.
+- `PAOS_HERMES_*` variables are PAOS runtime/orchestration controls, not provider credentials.
+- `OPENAI_*` should be exported by the Hermes wrapper at runtime and not manually maintained as permanent `.env` source-of-truth keys.
+- Wrapper path in container: `/workspace/paos-runtime/runtime/assistant/hermes/run_hermes.sh`
