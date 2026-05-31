@@ -1,0 +1,40 @@
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class ResolvedCategory:
+    value: str
+    source: str
+
+
+@dataclass(frozen=True)
+class AssistantConfig:
+    default_category: str | None
+    categories: list[str]
+    memory: "AssistantMemoryConfig"
+    context: "AssistantContextConfig"
+
+
+@dataclass(frozen=True)
+class AssistantMemoryConfig:
+    provider: str
+    fallback_provider: str
+    local_path: Path
+    mnemosyne_path: Path
+
+
+@dataclass(frozen=True)
+class AssistantContextSectionConfig:
+    name: str
+    title: str
+    files: list[str]
+
+
+@dataclass(frozen=True)
+class AssistantContextConfig:
+    repo_sections: list[AssistantContextSectionConfig]
+    max_chars_per_file: int
+    max_artifact_excerpt_chars: int
+    max_memory_items: int
+    max_runtime_statuses: int

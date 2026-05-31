@@ -19,6 +19,8 @@ venv/
 venvs/
 # PAOS runtime artifacts
 .runtime/
+assistant/context/
+runtime/assistant/memory/local.jsonl
 intelligence/raw/**
 intelligence/candidates/**
 intelligence/signals/**

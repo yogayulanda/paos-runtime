@@ -1,0 +1,34 @@
+assistant:
+  default_category: ai
+  memory:
+    provider: local
+    fallback_provider: local
+    local:
+      path: runtime/assistant/memory/local.jsonl
+    mnemosyne:
+      path: runtime/assistant/memory/mnemosyne.jsonl
+  context:
+    max_chars_per_file: 2400
+    max_artifact_excerpt_chars: 1600
+    max_memory_items: 8
+    max_runtime_statuses: 10
+    repo_sections:
+      - name: identity
+        title: Identity Context
+        files:
+          - USER.md
+          - core/identity.md
+      - name: working_style
+        title: Working Style
+        files:
+          - core/working-style.md
+      - name: active_projects
+        title: Active Projects
+        files:
+          - core/current-state.md
+
+  categories:
+    ai:
+      description: "AI tools, coding agents, PAOS, Forge, AI workflow"
+    career:
+      description: "remote work, job market, personal branding, career growth"
