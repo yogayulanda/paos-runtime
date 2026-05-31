@@ -7,7 +7,7 @@ Assistant OS:
 /daily - Daily action planner (priorities, defer, next action)
 /context - Context health inspector (artifact status, freshness, warnings)
 /memory - Read-only memory surface (progress, decisions, blockers, next)
-/handoff - Generate handoff summary (use /handoff codex or /handoff claude)
+/handoff - Generate handoff summary (use /handoff codex, /handoff claude, or /handoff hermes)
 /promote-memory - Suggest durable memory promotions (no write)
 /draft-context-update - Build controlled durable-context draft (no direct write)
 /preview-context-update - Preview latest controlled write draft
@@ -42,6 +42,7 @@ Command semantics:
 - /handoff = copy-paste handoff summary for next assistant
 - /handoff codex = handoff tuned for Codex continuation
 - /handoff claude = handoff tuned for Claude continuation
+- /handoff hermes = handoff tuned for Hermes bridge consumer
 - /promote-memory = suggest-only durable context promotion targets
 - /draft-context-update = create draft artifact only (no durable file mutation)
 - /preview-context-update = compact target/addition/risk preview from latest draft

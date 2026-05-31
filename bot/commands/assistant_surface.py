@@ -1021,7 +1021,7 @@ def _build_handoff_message(target="generic"):
         for item in ordered[:3]:
             top_opps.append(_compact(item.get("title")))
 
-    target_label = target if target in {"codex", "claude"} else "generic"
+    target_label = target if target in {"codex", "claude", "hermes"} else "generic"
     files = [
         "assistant/briefs/<latest>/assistant-brief.json",
         "assistant/context/<latest>/assistant-context.json",
@@ -1031,6 +1031,26 @@ def _build_handoff_message(target="generic"):
         files.append("runtime/assistant/adapters/codex.md")
     if target_label == "claude":
         files.append("runtime/assistant/adapters/claude-code.md")
+    if target_label == "hermes":
+        files.extend(
+            [
+                "runtime/assistant/adapters/hermes.md",
+                "runtime/assistant/contracts/hermes-bridge.md",
+            ]
+        )
+
+    guardrail_lines = [
+        "- Read-only surface only.",
+        "- No scheduler, no GitHub source, no Hermes bridge.",
+        "- No controlled write or memory write from this handoff surface.",
+    ]
+    if target_label == "hermes":
+        guardrail_lines = [
+            "- Read-only surface only.",
+            "- No scheduler or GitHub source changes from this handoff surface.",
+            "- Hermes is a consumer of PAOS; PAOS must not depend on Hermes.",
+            "- No controlled write or memory write from this handoff surface.",
+        ]
 
     lines = [
         f"Handoff ({target_label})",
@@ -1057,9 +1077,7 @@ def _build_handoff_message(target="generic"):
         "- Verifikasi next action tidak generik sebelum eksekusi.",
         "",
         "Guardrails",
-        "- Read-only surface only.",
-        "- No scheduler, no GitHub source, no Hermes bridge.",
-        "- No controlled write or memory write from this handoff surface.",
+        *guardrail_lines,
     ]
     if top_opps:
         lines.extend(["", "Top opportunities", *[f"- {x}" for x in top_opps if x]])
@@ -1239,6 +1257,8 @@ async def handle_handoff(update):
         target = "codex"
     elif text.startswith("/handoff claude"):
         target = "claude"
+    elif text.startswith("/handoff hermes"):
+        target = "hermes"
     else:
         target = "generic"
     await update.message.reply_text(_build_handoff_message(target=target))

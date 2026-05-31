@@ -20,6 +20,8 @@ Purpose: operator guide for cross-tool context + memory access through PAOS MCP.
 - `paos_memory_write`
 - `paos_memory_recall`
 - `paos_context_get`
+- `paos_brief_get`
+- `paos_opportunities_get`
 
 ## Quick validation sequence
 
@@ -27,6 +29,8 @@ Purpose: operator guide for cross-tool context + memory access through PAOS MCP.
 2. `paos_memory_write` with test content
 3. `paos_memory_recall` with same query
 4. `paos_context_get` with `{"section":"memory","format":"json"}`
+5. `paos_brief_get` with `{"category":"ai","format":"json"}`
+6. `paos_opportunities_get` with `{"category":"ai","format":"json"}`
 
 ## Mnemosyne backend notes
 

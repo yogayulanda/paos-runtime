@@ -1,22 +1,29 @@
 # Hermes Adapter Guide
 
-Purpose: design-only guidance for Hermes consumption of PAOS Assistant Context in Phase 2.
+Purpose: runtime guidance for Hermes to consume PAOS safely as an external client.
 
 ## Consumption interface
 
-Hermes should consume assistant context through the official command or its output file stream:
+Hermes should consume PAOS through MCP stdio first:
 
-`venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai`
+`venv/bin/python runtime/assistant/jobs/run_paos_mcp.py`
 
-Recommended bounded usage:
+Primary tools for Hermes:
 
-- Bootstrap: `--section all --max-chars 12000`
-- Focused runs: `--section profile|memory|runtime|intelligence` with tighter `--max-chars`
+- `paos_health`
+- `paos_context_get`
+- `paos_brief_get`
+- `paos_opportunities_get`
+- `paos_memory_recall`
+
+Context fallback (if MCP is not wired in Hermes yet):
+
+`venv/bin/python runtime/assistant/jobs/print_assistant_context.py --category ai --section all --max-chars 12000`
 
 ## Design boundary
 
-- This step is documentation only.
-- No Hermes bridge implementation is included in this phase step.
+- Adapter is thin and read-focused.
+- Do not add Hermes-specific behavior inside PAOS core runtime.
 
 ## Source and memory model
 
@@ -31,3 +38,11 @@ Recommended bounded usage:
 - Hermes must not bypass `MemoryProvider`.
 - Hermes must not mutate runtime/memory through context consumption.
 - Hermes should validate repo-affecting conclusions against repository files and contracts.
+
+## Notes for dashboard/daily surfaces
+
+- There is no dedicated MCP tool named `paos_dashboard` or `paos_daily` in current runtime.
+- Hermes can assemble dashboard/daily-equivalent summaries from:
+  - `paos_context_get` (`section=all|runtime|intelligence|memory`)
+  - `paos_brief_get`
+  - `paos_opportunities_get`

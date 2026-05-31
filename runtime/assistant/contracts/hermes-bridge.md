@@ -1,42 +1,45 @@
-# Hermes Bridge Contract (Design Only)
+# Hermes Bridge Contract
 
-Purpose: define the design boundary for a future Hermes bridge without implementing runtime behavior in this phase.
+Purpose: define the runtime-safe Hermes consumption boundary for PAOS Assistant surfaces.
 
 ## 1. Purpose
 
-- Hermes is an external consumer of PAOS Assistant Context and MemoryProvider-facing capabilities.
-- PAOS remains the Assistant OS Layer and must not become Hermes-specific runtime logic.
-- This contract is design-only and does not mean Hermes bridge implementation exists yet.
+- Hermes is an external consumer of PAOS Assistant and MCP-facing capabilities.
+- PAOS remains the Assistant OS layer and must not become Hermes-specific runtime logic.
+- Hermes is a client/consumer only. PAOS runtime must continue to operate without Hermes.
 
 ## 2. Consumption model
 
-Hermes consumes assistant context through official bounded interfaces:
+Hermes consumes PAOS through official bounded interfaces:
 
-- `runtime/assistant/jobs/print_assistant_context.py`
-- Latest generated assistant context artifact at `assistant/context/<YYYY-MM-DD>/assistant-context.{md,json}`
+- PAOS MCP server entrypoint:
+  - `venv/bin/python runtime/assistant/jobs/run_paos_mcp.py`
+- Read-only assistant context command:
+  - `runtime/assistant/jobs/print_assistant_context.py`
+- Generated artifacts:
+  - `assistant/context/<YYYY-MM-DD>/assistant-context.{md,json}`
+  - `assistant/briefs/<YYYY-MM-DD>/assistant-brief.{md,json}`
+  - `assistant/opportunities/<YYYY-MM-DD>/opportunities.{md,json}`
 
 Rules:
 
 - Hermes should not read random internal PAOS folders directly for context assembly.
-- Hermes should rely on source metadata and bounded output from official interfaces.
+- Hermes should rely on bounded outputs from official interfaces only.
 
 ## 3. Memory boundary
 
 - Hermes must not bypass `MemoryProvider`.
-- Future Hermes recall/write behavior must go through MemoryProvider-facing interface only.
-- Mnemosyne remains temporary/global working memory behind MemoryProvider.
+- Recall/write behavior must go through PAOS MCP tools only.
+- Mnemosyne remains temporary/global working memory behind `MemoryProvider`.
 - PAOS repository remains the durable source of truth.
 
 ## 4. Allowed future bridge shape
 
-- Thin wrapper or command adapter around official PAOS assistant interfaces.
-- MCP exposure is allowed later only when explicitly implemented.
+- Hermes should use a thin adapter over existing PAOS MCP tools.
 - No direct coupling from assistant core internals to Hermes-specific implementation details.
 
 ## 5. Non-goals (current phase)
 
-- No Hermes runtime implementation now.
-- No MCP server now.
 - No scheduler/cron integration.
 - No intelligence pipeline change.
 - No Telegram UX change.
@@ -44,13 +47,18 @@ Rules:
 
 ## 6. Failure behavior
 
-- If assistant context artifact is missing, Hermes should fail clearly with actionable error output.
-- If memory provider is unavailable, fallback/local diagnostics visibility should be preserved.
+- If artifacts are missing, Hermes should fail clearly with actionable errors.
+- If configured memory provider is unavailable, PAOS fallback status from `memory_provider` must be surfaced.
 - Hermes should not silently mutate PAOS runtime or memory state.
 
 ## 7. Future acceptance criteria
 
-- Hermes can load bounded assistant context through official consumption interfaces.
-- Hermes can request memory recall/write only through MemoryProvider boundary.
+- Hermes can call these MCP tools over stdio:
+  - `paos_health`
+  - `paos_context_get`
+  - `paos_brief_get`
+  - `paos_opportunities_get`
+  - `paos_memory_recall`
+- Optional write tool usage (`paos_memory_write`) is out of scope for this runtime validation.
 - Bridge remains replaceable and minimal.
 - PAOS remains tool-agnostic and durable-source oriented.
