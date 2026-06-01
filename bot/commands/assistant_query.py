@@ -123,8 +123,8 @@ def _is_action_loop_text(text: str) -> bool:
         r"\bdefer\b",
         r"\btunda\b",
         r"\btolak\b",
-        r"\bjadikan\b",
-        r"\bpilih\b",
+        r"\bjadikan nomor \d+\b",
+        r"\bpilih nomor \d+\b",
     )
     return any(re.search(pattern, lowered) for pattern in intent_patterns)
 
@@ -180,14 +180,22 @@ def _is_agent_orchestration_text(text: str) -> bool:
     lowered = _normalize_text(text)
     markers = (
         "buat handoff",
+        "siapkan prompt untuk agent lain",
+        "buat handoff untuk codex",
+        "buat handoff untuk claude",
         "buat prompt claude",
         "buat prompt codex",
         "hasil codex",
+        "review hasil codex ini",
         "hasil claude",
         "hasil agent",
+        "review hasil agent ini",
         "next step setelah hasil",
+        "apa next setelah hasil ini",
         "next action dari hasil",
+        "jadikan hasil ini action",
         "memory candidate dari hasil",
+        "buat memory candidate dari hasil ini",
         "update action ini berdasarkan hasil agent",
         "cek paos siap commit belum",
         "validasi runtime paos",
@@ -207,7 +215,7 @@ async def _handle_agent_orchestration(update, text: str) -> bool:
     elif "hermes" in lowered:
         target_agent = "hermes"
 
-    if "buat handoff" in lowered or "buat prompt" in lowered:
+    if "buat handoff" in lowered or "buat prompt" in lowered or "siapkan prompt untuk agent lain" in lowered:
         _trace_route("agent", text, "phase9_agent:handoff_create")
         payload = mcp_server.tool_paos_agent_handoff_create(target_agent=target_agent, source="fokus sekarang")
         sections = payload.get("sections") or {}
@@ -225,7 +233,13 @@ async def _handle_agent_orchestration(update, text: str) -> bool:
         await update.message.reply_text(body[:3900])
         return True
 
-    if "next step setelah hasil" in lowered or "next action dari hasil" in lowered or "update action ini berdasarkan hasil agent" in lowered:
+    if (
+        "next step setelah hasil" in lowered
+        or "next action dari hasil" in lowered
+        or "update action ini berdasarkan hasil agent" in lowered
+        or "apa next setelah hasil ini" in lowered
+        or "jadikan hasil ini action" in lowered
+    ):
         _trace_route("agent", text, "phase9_agent:next_action_draft")
         payload = mcp_server.tool_paos_agent_next_action_draft(content=text)
         draft = (payload.get("sections") or {}).get("draft") or {}
@@ -239,7 +253,7 @@ async def _handle_agent_orchestration(update, text: str) -> bool:
         )
         return True
 
-    if "memory candidate dari hasil" in lowered:
+    if "memory candidate dari hasil" in lowered or "buat memory candidate dari hasil ini" in lowered:
         _trace_route("agent", text, "phase9_agent:memory_candidate")
         payload = mcp_server.tool_paos_agent_memory_candidate_create(content=text, target_agent=target_agent)
         candidate = (payload.get("sections") or {}).get("candidate") or {}
@@ -253,7 +267,15 @@ async def _handle_agent_orchestration(update, text: str) -> bool:
         )
         return True
 
-    if "review hasil" in lowered or "hasil codex" in lowered or "hasil claude" in lowered or "hasil agent" in lowered or "sudah sesuai" in lowered:
+    if (
+        "review hasil" in lowered
+        or "review hasil codex ini" in lowered
+        or "review hasil agent ini" in lowered
+        or "hasil codex" in lowered
+        or "hasil claude" in lowered
+        or "hasil agent" in lowered
+        or "sudah sesuai" in lowered
+    ):
         _trace_route("agent", text, "phase9_agent:result_review")
         content = text
         if ":" in text:

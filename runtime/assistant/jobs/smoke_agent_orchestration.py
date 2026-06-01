@@ -26,8 +26,12 @@ def main() -> int:
     created = tool_paos_agent_handoff_create(target_agent="codex", source="focus now")
     _assert(created.get("ok"), "handoff create failed")
     handoff = (created.get("sections") or {}).get("handoff") or {}
+    package = handoff.get("context_package") or {}
     hid = str(handoff.get("handoff_id") or "")
     _assert(bool(hid), "handoff id missing")
+    _assert(bool(package.get("task_intent")), "handoff context package missing task_intent")
+    _assert(bool(package.get("constraints")), "handoff context package missing constraints")
+    _assert(bool(package.get("expected_output_format")), "handoff context package missing expected_output_format")
 
     listed = tool_paos_agent_handoff_list(limit=3)
     _assert(listed.get("ok"), "handoff list failed")
@@ -41,9 +45,12 @@ def main() -> int:
         handoff_id=hid,
     )
     _assert(review.get("ok"), "result review failed")
+    review_payload = (review.get("sections") or {}).get("review") or {}
+    _assert(review_payload.get("classification") in {"accepted", "needs_follow_up", "unsafe", "incomplete"}, "invalid review classification")
 
     next_draft = tool_paos_agent_next_action_draft(content="Need follow-up for failing e2e logs", handoff_id=hid)
     _assert(next_draft.get("ok"), "next action draft failed")
+    _assert(bool(((next_draft.get("sections") or {}).get("draft") or {}).get("title")), "next action draft title missing")
 
     mem = tool_paos_agent_memory_candidate_create(
         content="Codex report menunjukkan validasi runtime lebih stabil setelah runner standar.",
@@ -51,6 +58,7 @@ def main() -> int:
         target_agent="codex",
     )
     _assert(mem.get("ok"), "agent memory candidate failed")
+    _assert(bool(((mem.get("sections") or {}).get("candidate") or {}).get("candidate_id")), "memory candidate id missing")
 
     print("smoke_agent_orchestration: PASS")
     print("No external action was applied.")

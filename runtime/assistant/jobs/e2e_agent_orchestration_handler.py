@@ -148,8 +148,14 @@ async def _run() -> None:
     # - Validate UX contract and safety boundaries while allowing output variance.
     checks = [
         ("buat handoff Codex dari fokus sekarang", _assert_handoff_contract),
+        ("buat handoff untuk Claude", _assert_handoff_contract),
+        ("siapkan prompt untuk agent lain", _assert_handoff_contract),
         ("review hasil agent ini: implementasi oke, smoke pass, tidak ada blocker", _assert_agent_review_contract),
+        ("review hasil Codex ini: patch runtime/assistant/agent_orchestration.py, smoke: PASS", _assert_agent_review_contract),
         ("apa next step setelah hasil agent ini?", _assert_next_action_contract),
+        ("apa next setelah hasil ini?", _assert_next_action_contract),
+        ("jadikan hasil ini action", _assert_next_action_contract),
+        ("buat memory candidate dari hasil ini: keputusan pakai validation runner lokal", _assert_memory_candidate_contract),
     ]
 
     for idx, (msg, checker) in enumerate(checks, start=1):
