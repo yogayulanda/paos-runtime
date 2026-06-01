@@ -100,26 +100,28 @@ def _is_action_loop_text(text: str) -> bool:
         return False
     if lowered.isdigit():
         return True
+    # Deterministic action-loop routing must stay narrow: only explicit local-state rails.
     intent_patterns = (
         r"\bbuat action hari ini\b",
+        r"\bbuat daily action\b",
         r"\bapa action pending saya\b",
+        r"\baction saya\b",
+        r"\blist action\b",
+        r"\bapa fokus saya sekarang\b",
+        r"\bapa yang harus saya kerjakan sekarang\b",
         r"\bpilih nomor \d+\b",
-        r"\baccept yang tadi\b",
-        r"\btunda yang tadi\b",
-        r"\btolak yang scheduler\b",
+        r"\bnomor \d+\b",
+        r"\blihat detail\b",
         r"\bbuat handoff codex dari accepted action\b",
         r"\baccept\b",
         r"\breject\b",
         r"\bdefer\b",
+        r"\btunda\b",
+        r"\btolak\b",
+        r"\bjadikan\b",
+        r"\bpilih\b",
     )
-    if any(re.search(pattern, lowered) for pattern in intent_patterns):
-        return True
-    lowered = str(text or "").lower()
-    keys = (
-        "action", "pending", "accept", "reject", "defer", "tunda", "tolak",
-        "nomor", "yang tadi", "handoff codex", "buat action hari ini",
-    )
-    return any(k in lowered for k in keys)
+    return any(re.search(pattern, lowered) for pattern in intent_patterns)
 
 
 def _is_forbidden_gateway_request(text: str) -> bool:
