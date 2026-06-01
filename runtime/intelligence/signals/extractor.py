@@ -1,7 +1,7 @@
 import json
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from signals.models import SIGNAL_VERSION
 
@@ -69,6 +69,28 @@ THEME_RULES = [
 ]
 
 OTHER_THEME = "Other"
+
+SOURCE_CONFIDENCE = {
+    "mapped_account": 0.92,
+    "github_source": 0.88,
+    "github_public": 0.88,
+    "rss_source": 0.81,
+    "discovery": 0.66,
+    "keyword_discovery": 0.66,
+}
+
+CONTEXT_KEYWORDS = {
+    "paos",
+    "mnemosyne",
+    "hermes",
+    "codex",
+    "claude",
+    "action loop",
+    "memory",
+    "runtime",
+    "mcp",
+    "agent",
+}
 
 
 def compact_text(value):
@@ -259,6 +281,25 @@ def build_signal(group_key, candidates):
         {compact_text(item.get("source_name")) for item in candidates if item.get("source_name")}
     )
     sources = build_sources(candidates)
+    recency_days = min(
+        _days_since(item.get("created_at") or item.get("collected_at"))
+        for item in candidates
+    ) if candidates else 14
+    text_blob = " ".join([title, summary, why_it_matters, theme])
+    relevance = _score_relevance(text_blob)
+    recency = _score_recency(recency_days)
+    novelty = _score_novelty(len(candidates))
+    source_confidence = _score_source_confidence(candidates)
+    context_match = _score_relevance(text_blob)
+    opportunity = _score_opportunity(text_blob)
+    total = (
+        (relevance * 0.22)
+        + (recency * 0.18)
+        + (novelty * 0.14)
+        + (source_confidence * 0.18)
+        + (context_match * 0.14)
+        + (opportunity * 0.14)
+    )
 
     return {
         "title": title,
@@ -274,6 +315,16 @@ def build_signal(group_key, candidates):
             "topic_key": group_key,
             "candidate_count": len(candidates),
             "category": compact_text(representative.get("category")),
+            "scoring": {
+                "relevance": round(relevance, 3),
+                "recency": round(recency, 3),
+                "novelty": round(novelty, 3),
+                "source_confidence": round(source_confidence, 3),
+                "context_match": round(context_match, 3),
+                "opportunity": round(opportunity, 3),
+                "total": round(total, 3),
+                "recency_days": round(recency_days, 2),
+            },
         },
     }
 
@@ -289,8 +340,14 @@ def build_signals(candidates):
             item[0],
         ),
     )
-
     signals = [build_signal(group_key, items) for group_key, items in ranked_groups]
+    signals.sort(
+        key=lambda signal: (
+            -float((((signal.get("signal_metadata") or {}).get("scoring") or {}).get("total") or 0.0)),
+            -int(((signal.get("signal_metadata") or {}).get("candidate_count") or 0)),
+            compact_text(signal.get("title")),
+        )
+    )
     themes = sorted(theme_counts.keys())
     diagnostics = {
         "group_count": len(groups),
@@ -308,3 +365,59 @@ def build_heuristic_signals(candidates):
     for signal in signals:
         signal["signal_metadata"]["generation_mode"] = "heuristic"
     return signals, themes, diagnostics
+def _parse_iso(value):
+    raw = compact_text(value)
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+def _days_since(value):
+    parsed = _parse_iso(value)
+    if not parsed:
+        return 14
+    now = datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - parsed.astimezone(timezone.utc)).total_seconds() / 86400.0)
+
+def _score_recency(days):
+    if days <= 1:
+        return 1.0
+    if days <= 3:
+        return 0.85
+    if days <= 7:
+        return 0.65
+    return 0.4
+
+def _score_relevance(text):
+    lowered = lower_text(text)
+    matched = sum(1 for token in CONTEXT_KEYWORDS if token in lowered)
+    return min(1.0, 0.25 + matched * 0.13)
+
+def _score_novelty(candidate_count):
+    if candidate_count <= 1:
+        return 0.95
+    if candidate_count <= 3:
+        return 0.78
+    if candidate_count <= 6:
+        return 0.6
+    return 0.45
+
+def _score_opportunity(text):
+    lowered = lower_text(text)
+    hits = sum(
+        1
+        for token in ("launch", "release", "workflow", "agent", "sdk", "benchmark", "integration", "automation", "production")
+        if token in lowered
+    )
+    return min(1.0, 0.2 + hits * 0.12)
+
+def _score_source_confidence(candidates):
+    scores = []
+    for item in candidates:
+        trust = lower_text((item.get("candidate_metadata") or {}).get("source_trust"))
+        scores.append(SOURCE_CONFIDENCE.get(trust, 0.6))
+    return sum(scores) / len(scores) if scores else 0.6

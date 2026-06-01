@@ -1,5 +1,8 @@
 platform: rss
 mode: public
+read_only: true
+source_family: rss
+source_confidence_default: 0.81
 
 categories:
   ai:
@@ -45,3 +48,6 @@ categories:
 
 limits:
   default_per_feed: 5
+
+extensions:
+  future_sources: []

@@ -1,5 +1,8 @@
 platform: github
 mode: public
+read_only: true
+source_family: github
+source_confidence_default: 0.88
 
 categories:
   ai:
@@ -40,3 +43,6 @@ categories:
 limits:
   default_per_repo: 3
   timeout_seconds: 20
+
+extensions:
+  future_sources: []

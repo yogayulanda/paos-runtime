@@ -355,7 +355,7 @@ async def _handle_daily_operating(update, text: str) -> bool:
             await update.message.reply_text("\n".join(lines)[:3900])
             return True
 
-        if _has_any_phrase(lowered, ("apa yang menarik hari ini", "yang menarik hari ini", "interesting today")):
+        if _has_any_phrase(lowered, ("apa yang menarik hari ini", "yang menarik hari ini", "interesting today", "insight terbaru apa", "insight terbaru", "ada opportunity apa", "opportunity apa")):
             payload = mcp_server.tool_paos_source_insight_get(category="ai", limit=3)
             items = payload.get("items") or []
             if not items:
@@ -363,7 +363,23 @@ async def _handle_daily_operating(update, text: str) -> bool:
                 return True
             lines = ["Yang menarik hari ini:"]
             for idx, item in enumerate(items[:3], start=1):
-                lines.append(f"{idx}. {str(item.get('title') or '-')[:180]}")
+                lines.append(f"{idx}. {str(item.get('title') or '-')[:160]}")
+                lines.append(f"   kenapa penting: {str(item.get('reason') or '-')[:140]}")
+            lines.append("No external action was applied.")
+            await update.message.reply_text("\n".join(lines)[:3900])
+            return True
+
+        if _has_any_phrase(lowered, ("trend apa yang relevan buat paos", "trend relevan paos", "opportunity scoring")):
+            payload = mcp_server.tool_paos_source_recommendation_get(category="ai")
+            opportunities = payload.get("opportunities") or []
+            if not opportunities:
+                await update.message.reply_text("Belum ada trend/opportunity yang cukup kuat hari ini. No external action was applied.")
+                return True
+            lines = ["Trend relevan buat PAOS:"]
+            for idx, item in enumerate(opportunities[:3], start=1):
+                lines.append(f"{idx}. {str(item.get('title') or '-')[:150]}")
+                lines.append(f"   score: {item.get('opportunity_score')} | why: {str(item.get('why_it_matters') or '-')[:120]}")
+                lines.append(f"   next action draft: {str(item.get('suggested_next_action_draft') or '-')[:140]}")
             lines.append("No external action was applied.")
             await update.message.reply_text("\n".join(lines)[:3900])
             return True
@@ -729,7 +745,7 @@ async def _handle_source_intelligence(update, text: str) -> bool:
             )[:3900]
         )
         return True
-    if any(k in lowered for k in ("insight ai yang penting", "insight hari ini", "insight dari github", "insight dari threads")):
+    if any(k in lowered for k in ("insight ai yang penting", "insight hari ini", "insight dari github", "insight dari threads", "insight terbaru apa", "insight terbaru")):
         _trace_route("source-intel", text, "phase6_source_insight")
         payload = get_source_insights(category="ai", limit=3)
         items = payload.get("items") or []
@@ -741,7 +757,7 @@ async def _handle_source_intelligence(update, text: str) -> bool:
             lines.append(f"{i}. {item.get('title', '-')}")
             lines.append(f"   alasan: {str(item.get('reason') or '-')[:180]}")
             lines.append(f"   source: {item.get('source_ref') or item.get('source_refs') or '-'}")
-        await update.message.reply_text(("\n".join(lines))[:3900])
+        await update.message.reply_text((("\n".join(lines)) + "\nNo external action was applied.")[:3900])
         return True
     if any(k in lowered for k in ("source paling berguna", "rekomendasi source", "keyword yang perlu saya ubah")):
         _trace_route("source-intel", text, "phase6_source_recommendation")
@@ -749,7 +765,7 @@ async def _handle_source_intelligence(update, text: str) -> bool:
         msg = "Rekomendasi source/keyword:\n" + "\n".join(f"- {x}" for x in (payload.get("items") or [])[:5])
         await update.message.reply_text(msg[:3900])
         return True
-    if any(k in lowered for k in ("buat action dari insight terbaru", "source intelligence terbaru", "jadikan insight terbaru sebagai proposed action")):
+    if any(k in lowered for k in ("buat action dari insight terbaru", "source intelligence terbaru", "jadikan insight terbaru sebagai proposed action", "buat action dari insight ini")):
         _trace_route("source-intel", text, "phase6_source_action_from_insight")
         payload = create_action_from_latest_insight(category="ai")
         if not payload.get("ok"):
@@ -810,6 +826,10 @@ async def handle_free_text_query(update, context):
         _trace_route("free-text", text, "daily_ux_fallback_after_hermes")
         if await _handle_daily_operating(update, text):
             return
+
+    if await _handle_source_intelligence(update, text):
+        _trace_route("free-text", text, "phase6_source_intelligence_fallback_after_hermes")
+        return
 
     if not hermes_attempted:
         _trace_route("free-text", text, "unknown_after_hermes_unavailable")

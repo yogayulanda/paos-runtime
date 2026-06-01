@@ -1,5 +1,8 @@
 platform: threads
 mode: public
+read_only: true
+source_family: threads
+source_confidence_default: 0.66
 
 categories:
   ai:
@@ -59,3 +62,6 @@ categories:
 limits:
   default_per_account: 6
   default_per_keyword: 4
+
+extensions:
+  future_sources: []

@@ -211,14 +211,43 @@ def get_source_insights(category: str = "ai", limit: int = 5) -> dict[str, Any]:
     runtime_dir = _runtime_dir()
     path = _insight_jsonl_path(runtime_dir, category)
     rows = _read_jsonl(path) if path else []
-    rows = rows[: max(1, int(limit))]
+    def _score(item: dict[str, Any]) -> float:
+        scoring = ((item.get("signal_metadata") or {}).get("scoring") or {})
+        if isinstance(scoring, dict) and scoring.get("total") is not None:
+            try:
+                return float(scoring.get("total") or 0.0)
+            except Exception:
+                return 0.0
+        confidence = float(item.get("confidence") or 0.0)
+        return confidence
+
+    rows = sorted(rows, key=_score, reverse=True)[: max(1, int(limit))]
+    compact_items = []
+    for row in rows:
+        source_refs = row.get("source_refs") or row.get("source_ref") or []
+        if isinstance(source_refs, str):
+            source_refs = [source_refs]
+        compact_items.append(
+            {
+                "title": row.get("title"),
+                "reason": row.get("reason"),
+                "insight_type": row.get("insight_type"),
+                "confidence": row.get("confidence"),
+                "source_refs": [str(x)[:140] for x in list(source_refs)[:3]],
+                "signal_metadata": {
+                    "topic_key": ((row.get("signal_metadata") or {}).get("topic_key")),
+                    "candidate_count": ((row.get("signal_metadata") or {}).get("candidate_count")),
+                    "scoring": ((row.get("signal_metadata") or {}).get("scoring") or {}),
+                },
+            }
+        )
     return {
         "ok": True,
         "generated_at": now_iso(),
         "source": "paos.source-intelligence",
-        "summary": f"Loaded {len(rows)} insights.",
+        "summary": f"Loaded {len(compact_items)} top insights (compact evidence).",
         "category": category,
-        "items": rows,
+        "items": compact_items,
         "warnings": [],
         "errors": [],
     }
@@ -273,6 +302,23 @@ def get_source_recommendation(category: str = "ai") -> dict[str, Any]:
         elif item.get("health") == "warning":
             recommendations.append(f"Tinjau warning di {item.get('job')} agar sinyal lebih bersih.")
 
+    insights = get_source_insights(category=category, limit=3).get("items") or []
+    opportunity_items = []
+    for item in insights:
+        scoring = ((item.get("signal_metadata") or {}).get("scoring") or {})
+        total = float(scoring.get("total") or 0.0)
+        title = str(item.get("title") or "Insight")[:140]
+        reason = str(item.get("reason") or "")[:220]
+        opportunity_items.append(
+            {
+                "title": title,
+                "why_it_matters": reason,
+                "opportunity_score": round(total, 3),
+                "suggested_next_action_draft": f"Validasi '{title}' terhadap prioritas PAOS hari ini lalu buat eksperimen kecil read-only.",
+                "confidence_reason": f"score={round(total,3)} berdasarkan relevance/recency/novelty/source-confidence/context/opportunity.",
+            }
+        )
+
     return {
         "ok": True,
         "generated_at": now_iso(),
@@ -281,6 +327,7 @@ def get_source_recommendation(category: str = "ai") -> dict[str, Any]:
         "category": category,
         "items": recommendations[:6],
         "signals": {"candidate_count_by_platform": dict(by_platform)},
+        "opportunities": opportunity_items,
         "warnings": [],
         "errors": [],
     }
@@ -302,9 +349,16 @@ def create_action_from_latest_insight(category: str = "ai", reference: str | Non
     insight = items[0]
     title = str(insight.get("title") or "Insight terbaru")
     reason = str(insight.get("reason") or "")
+    scoring = ((insight.get("signal_metadata") or {}).get("scoring") or {})
+    confidence_reason = (
+        f"relevance={scoring.get('relevance')}, recency={scoring.get('recency')}, novelty={scoring.get('novelty')}, "
+        f"source_confidence={scoring.get('source_confidence')}, context_match={scoring.get('context_match')}, opportunity={scoring.get('opportunity')}"
+        if isinstance(scoring, dict) and scoring
+        else "confidence derived from latest insight cluster"
+    )
     draft = {
         "title": f"Action dari insight: {title}",
-        "summary": reason[:280] or "Action draft dari insight terbaru.",
+        "summary": (reason[:220] + f" | Confidence: {confidence_reason}")[:320] if reason else f"Action draft dari insight terbaru. Confidence: {confidence_reason}",
         "steps": [
             "Validasi relevansi insight dengan prioritas hari ini.",
             "Jalankan satu eksperimen kecil berbasis insight ini.",

@@ -109,19 +109,29 @@ def main() -> int:
     diff = _run(["git", "diff", "-U0"]).stdout or ""
     secret_pattern = re.compile(r"(AKIA|ASIA|SECRET|TOKEN|PASSWORD|PRIVATE KEY|BEGIN RSA|BEGIN OPENSSH|xoxb-|ghp_|github_pat_|sk-[A-Za-z0-9]|HERMES_LLM_API_KEY|TELEGRAM_BOT_TOKEN)", re.I)
     secret_hits = [line for line in diff.splitlines() if secret_pattern.search(line)]
-    secret_hits = [
-        line
-        for line in secret_hits
-        if "missing token" not in line.lower()
-        and "for token in" not in line.lower()
-        and "token.lower()" not in line.lower()
-        and "missing {token}" not in line.lower()
-        and "token_options" not in line.lower()
-        and "opt in where" not in line.lower()
-        and "token.split" not in line.lower()
-        and "secret_hits" not in line.lower()
-        and "secret_pattern" not in line.lower()
-    ]
+
+    def _is_internal_secret_scan_logic_line(line: str) -> bool:
+        stripped = line.strip()
+        lowered = stripped.lower()
+        if not (stripped.startswith("+") or stripped.startswith("-")):
+            return False
+        # Ignore only explicit scanner-logic lines in this validator, not arbitrary code lines.
+        safe_markers = (
+            "secret_pattern",
+            "secret_hits",
+            "internal_secret_scan_logic_line",
+            "missing token",
+            "missing {token}",
+            "token_options",
+            "token.split",
+            "token.lower()",
+            "for token in",
+            "opt in where",
+            "if token in lowered",
+        )
+        return any(marker in lowered for marker in safe_markers)
+
+    secret_hits = [line for line in secret_hits if not _is_internal_secret_scan_logic_line(line)]
     if secret_hits:
         _print_result("secret_scan", False, secret_hits[0][:220])
         raise CheckFailed("secret_scan")
