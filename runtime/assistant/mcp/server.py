@@ -89,6 +89,21 @@ def _resolve_category(value: str | None) -> tuple[str, str]:
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+def _parse_iso(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+def _age_days(value: Any) -> int | None:
+    parsed = _parse_iso(value)
+    if not parsed:
+        return None
+    return max(0, int((datetime.now(timezone.utc) - parsed).total_seconds() // 86400))
+
 
 def _read_json_file(path: Path) -> dict[str, Any] | None:
     if not path.exists() or not path.is_file():
@@ -989,6 +1004,227 @@ def tool_paos_source_recommendation_get(category: str | None = None) -> dict[str
     except Exception as exc:
         return _error_payload(category=category, errors=[str(exc)])
 
+def tool_paos_operating_summary_get(category: str | None = None) -> dict[str, Any]:
+    warnings: list[str] = []
+    errors: list[str] = []
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        runtime = tool_paos_runtime_status_get()
+        source = tool_paos_source_status_get()
+        memory = tool_paos_memory_health_get()
+        actions = tool_paos_action_list(limit=40)
+
+        accepted = [a for a in (actions.get("sections", {}).get("actions") or []) if a.get("state") == "accepted"]
+        proposed = [a for a in (actions.get("sections", {}).get("actions") or []) if a.get("state") == "proposed"]
+        deferred = [a for a in (actions.get("sections", {}).get("actions") or []) if a.get("state") == "deferred"]
+
+        current_focus = (accepted[0] if accepted else (proposed[0] if proposed else None)) or {}
+        current_focus_title = str(current_focus.get("title") or "Belum ada accepted action")
+        focus_state = str(current_focus.get("state") or "none")
+
+        latest_insight = "Belum ada insight terbaru."
+        insight_payload = tool_paos_source_insight_get(category=resolved_category, limit=1)
+        if insight_payload.get("ok") and (insight_payload.get("items") or []):
+            top = (insight_payload.get("items") or [])[0]
+            latest_insight = str(top.get("title") or top.get("summary") or "Insight terbaru tersedia")[:180]
+
+        source_candidate_count = int(source.get("candidate_count") or 0)
+        memory_candidate_count = int(memory.get("candidate_count") or 0)
+        gateway_running = bool((runtime.get("sections") or {}).get("gateway_running"))
+
+        stale_signals: list[str] = []
+        oldest_proposed_days = None
+        oldest_deferred_days = None
+        for row in proposed:
+            age = _age_days(row.get("updated_at") or row.get("created_at"))
+            if age is not None:
+                oldest_proposed_days = age if oldest_proposed_days is None else max(oldest_proposed_days, age)
+        for row in deferred:
+            age = _age_days(row.get("updated_at") or row.get("created_at"))
+            if age is not None:
+                oldest_deferred_days = age if oldest_deferred_days is None else max(oldest_deferred_days, age)
+
+        source_artifacts = source.get("artifacts") if isinstance(source.get("artifacts"), dict) else {}
+        source_digest_date = (source_artifacts.get("digest") or {}).get("date") if source_artifacts else None
+        source_insight_date = (source_artifacts.get("insight") or {}).get("date") if source_artifacts else None
+
+        if oldest_proposed_days is not None and oldest_proposed_days >= 3:
+            stale_signals.append(f"Ada proposed action lama (~{oldest_proposed_days} hari).")
+        if oldest_deferred_days is not None and oldest_deferred_days >= 7:
+            stale_signals.append(f"Ada deferred action lama (~{oldest_deferred_days} hari).")
+        if source_candidate_count == 0:
+            stale_signals.append("Candidate source kosong; cek collector/candidate pool.")
+        if memory_candidate_count >= 5:
+            stale_signals.append(f"Candidate memory pending {memory_candidate_count}; review approval/reject.")
+        if gateway_running:
+            stale_signals.append("Gateway Hermes terdeteksi running; seharusnya stopped.")
+        if not source_digest_date or not source_insight_date:
+            stale_signals.append("Artifact source digest/insight belum lengkap.")
+
+        warnings.extend([str(x) for x in runtime.get("warnings") or []][:4])
+        warnings.extend([str(x) for x in source.get("warnings") or []][:4])
+        warnings.extend([str(x) for x in memory.get("warnings") or []][:4])
+
+        blockers = [x for x in stale_signals if "running" in x.lower() or "kosong" in x.lower()]
+        if runtime.get("errors"):
+            errors.extend([str(x) for x in runtime.get("errors") or []][:4])
+        if source.get("errors"):
+            errors.extend([str(x) for x in source.get("errors") or []][:4])
+        if memory.get("errors"):
+            errors.extend([str(x) for x in memory.get("errors") or []][:4])
+
+        recommended_next_step = "Review 1 pending action lalu tetapkan accepted action untuk fokus hari ini."
+        if gateway_running:
+            recommended_next_step = "Pastikan Hermes gateway tetap stopped, lalu cek runtime status ulang."
+        elif source_candidate_count == 0:
+            recommended_next_step = "Jalankan ulang collector + candidate pool agar insight/source tidak kosong."
+        elif memory_candidate_count >= 5:
+            recommended_next_step = "Review candidate memory tertua dulu agar memory tetap bersih dan aktif."
+        elif focus_state != "accepted":
+            recommended_next_step = "Pilih satu proposed action menjadi accepted agar fokus harian jelas."
+
+        summary = (
+            f"PAOS hari ini: runtime={runtime.get('status', 'unknown')}, gateway={((runtime.get('sections') or {}).get('hermes_gateway_status') or 'unknown')}, "
+            f"focus='{current_focus_title[:90]}', pending={len(proposed) + len(deferred)}, "
+            f"source_candidates={source_candidate_count}, memory_candidates={memory_candidate_count}."
+        )
+
+        return {
+            "ok": len(errors) == 0,
+            "generated_at": _now_iso(),
+            "source": "paos.mcp.operating-summary",
+            "category": resolved_category,
+            "category_source": category_source,
+            "status": "ready" if not errors else "degraded",
+            "summary": summary,
+            "sections": {
+                "runtime_health": {
+                    "status": runtime.get("status"),
+                    "summary": runtime.get("summary"),
+                },
+                "hermes": {
+                    "mcp_paos_health": ((runtime.get("sections") or {}).get("mcp_paos_health")),
+                    "hermes_gateway_status": ((runtime.get("sections") or {}).get("hermes_gateway_status")),
+                    "gateway_running": gateway_running,
+                },
+                "focus": {
+                    "current_focus": current_focus_title,
+                    "focus_state": focus_state,
+                    "latest_accepted_action": accepted[0] if accepted else None,
+                    "pending_action_count": len(proposed) + len(deferred),
+                },
+                "source_intelligence": {
+                    "status": source.get("status"),
+                    "summary": source.get("summary"),
+                    "latest_insight_summary": latest_insight,
+                    "candidate_count": source_candidate_count,
+                },
+                "memory_health": {
+                    "summary": memory.get("summary"),
+                    "active_count": memory.get("active_count"),
+                    "pending_candidate_count": memory_candidate_count,
+                },
+                "staleness_signals": stale_signals,
+                "warnings_blockers": blockers,
+                "recommended_next_safe_step": recommended_next_step,
+            },
+            "warnings": warnings,
+            "errors": errors,
+        }
+    except Exception as exc:
+        return _error_payload(
+            category=category,
+            warnings=warnings,
+            errors=[str(exc)],
+            generated_at=_now_iso(),
+            source="paos.mcp.operating-summary",
+            summary="failed to build operating summary",
+        )
+
+def tool_paos_daily_plan_get(category: str | None = None) -> dict[str, Any]:
+    warnings: list[str] = []
+    errors: list[str] = []
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        operating = tool_paos_operating_summary_get(category=resolved_category)
+        actions = tool_paos_action_list(limit=20)
+        memory = tool_paos_memory_relevant_get(query="fokus harian prioritas kerja", category=resolved_category, limit=4)
+        insight = tool_paos_source_insight_get(category=resolved_category, limit=1)
+
+        accepted = [a for a in (actions.get("sections", {}).get("actions") or []) if a.get("state") == "accepted"]
+        proposed = [a for a in (actions.get("sections", {}).get("actions") or []) if a.get("state") == "proposed"]
+        focus = accepted[0] if accepted else (proposed[0] if proposed else None)
+
+        plan_items: list[str] = []
+        if focus:
+            plan_items.append(f"Eksekusi fokus utama: {str(focus.get('title') or '')[:140]} (tetap local tracking).")
+        else:
+            plan_items.append("Belum ada fokus accepted; pilih satu proposed action paling relevan.")
+
+        insight_item = (insight.get("items") or [None])[0]
+        if isinstance(insight_item, dict):
+            insight_title = str(insight_item.get("title") or insight_item.get("summary") or "Insight terbaru")[:140]
+            plan_items.append(f"Gunakan insight terbaru: {insight_title} untuk validasi prioritas hari ini.")
+        else:
+            plan_items.append("Insight terbaru belum tersedia; lakukan cek source status dan candidates.")
+
+        mem_items = memory.get("items") or []
+        if mem_items:
+            top_mem = str(mem_items[0].get("content") or "")[:120]
+            plan_items.append(f"Selaraskan eksekusi dengan memory aktif: {top_mem}.")
+        else:
+            plan_items.append("Memory relevan minim; gunakan memory profile ringkas untuk alignment kerja.")
+
+        plan_items.append("Tutup loop hari ini: review pending action + candidate memory, lalu tetapkan next step aman.")
+
+        proposed_local_action = {
+            "title": "Review operating summary + finalize next safe step",
+            "summary": "Rangkum status runtime/action/source/memory dan pilih satu langkah aman berikutnya.",
+            "steps": [
+                "Cek warning/blocker pada operating summary.",
+                "Pilih satu pending action untuk accept/defer/reject.",
+                "Konfirmasi next step operasional paling aman untuk hari ini.",
+            ],
+            "apply_mechanism_available": False,
+            "notice": "No external action was applied.",
+        }
+
+        evidence = {
+            "operating_summary": str(operating.get("summary") or "")[:200],
+            "focus": str((focus or {}).get("title") or "belum ada")[:120],
+            "memory_points": [str(item.get("content") or "")[:100] for item in mem_items[:2]],
+            "insight": str((insight_item or {}).get("title") or (insight_item or {}).get("summary") or "")[:120],
+        }
+
+        summary = "Daily plan tersusun dari context + action loop + memory + source. No external action was applied."
+        return {
+            "ok": True,
+            "generated_at": _now_iso(),
+            "source": "paos.mcp.daily-plan",
+            "category": resolved_category,
+            "category_source": category_source,
+            "status": "ready",
+            "summary": summary,
+            "sections": {
+                "daily_plan": plan_items,
+                "proposed_local_action": proposed_local_action,
+                "evidence_summary": evidence,
+                "recommended_next_safe_step": (operating.get("sections") or {}).get("recommended_next_safe_step"),
+                "notice": "No external action was applied.",
+            },
+            "warnings": warnings,
+            "errors": errors,
+        }
+    except Exception as exc:
+        return _error_payload(
+            category=category,
+            warnings=warnings,
+            errors=[str(exc)],
+            generated_at=_now_iso(),
+            source="paos.mcp.daily-plan",
+            summary="failed to build daily plan",
+        )
+
 
 def tool_paos_source_action_draft_create(
     reference: str | None = None,
@@ -1349,6 +1585,22 @@ def create_mcp_server():
     def paos_runtime_status_get() -> dict[str, Any]:
         try:
             return tool_paos_runtime_status_get()
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_operating_summary_get")
+    def paos_operating_summary_get(category: str | None = None) -> dict[str, Any]:
+        """Compact daily operating summary across runtime, action loop, source intelligence, and memory health."""
+        try:
+            return tool_paos_operating_summary_get(category=category)
+        except Exception as exc:
+            return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_daily_plan_get")
+    def paos_daily_plan_get(category: str | None = None) -> dict[str, Any]:
+        """Draft-only daily plan from context, memory, source intelligence, and local action loop."""
+        try:
+            return tool_paos_daily_plan_get(category=category)
         except Exception as exc:
             return _error_payload(errors=[f"unexpected error: {exc}"])
 

@@ -198,6 +198,53 @@ Behavior:
 - Read-only operation; does not mutate memory.
 - Must not import Mnemosyne directly.
 
+## Tool: `paos_operating_summary_get`
+
+Input:
+
+- `category` (optional)
+
+Output:
+
+- `ok`
+- `status`
+- `summary`
+- `sections.runtime_health`
+- `sections.hermes`
+- `sections.focus`
+- `sections.source_intelligence`
+- `sections.memory_health`
+- `sections.staleness_signals`
+- `sections.warnings_blockers`
+- `sections.recommended_next_safe_step`
+
+Behavior:
+
+- Read-only composition over runtime status, action-loop state, source intelligence, and memory health.
+- Must not create/transition actions, must not write memory.
+- Returns cleanup recommendations only; no destructive cleanup.
+
+## Tool: `paos_daily_plan_get`
+
+Input:
+
+- `category` (optional)
+
+Output:
+
+- `ok`
+- `summary`
+- `sections.daily_plan`
+- `sections.proposed_local_action` (draft-only suggestion)
+- `sections.evidence_summary` (compact)
+- `sections.recommended_next_safe_step`
+- `sections.notice` (`No external action was applied.`)
+
+Behavior:
+
+- Produces concise daily plan from context/action-loop/memory/source composition.
+- No execution path, no external mutation, no memory write.
+
 ## Security constraints
 
 - SSH key auth required for remote usage.
@@ -257,6 +304,8 @@ Invariants:
 - `paos_context_health_get`: context health read.
 - `paos_handoff_get`: handoff rendering read.
 - `paos_runtime_status_get`: runtime status read.
+- `paos_operating_summary_get`: composed daily operating summary read.
+- `paos_daily_plan_get`: draft-only daily plan composition read.
 - `paos_source_status_get`: source pipeline status read.
 - `paos_source_digest_get`: digest artifact read.
 - `paos_source_insight_get`: insight artifact read.

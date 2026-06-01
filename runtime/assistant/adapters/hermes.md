@@ -20,6 +20,8 @@ Primary tools for Hermes:
 - `paos_context_health_get`
 - `paos_handoff_get`
 - `paos_runtime_status_get`
+- `paos_operating_summary_get`
+- `paos_daily_plan_get`
 - `paos_source_status_get`
 
 Context fallback (if MCP is not wired in Hermes yet):
@@ -48,6 +50,8 @@ Context fallback (if MCP is not wired in Hermes yet):
 ## Notes for dashboard/daily surfaces
 
 - Prefer dedicated read tools:
+  - `paos_operating_summary_get`
+  - `paos_daily_plan_get`
   - `paos_dashboard_get`
   - `paos_daily_get`
   - `paos_context_health_get`

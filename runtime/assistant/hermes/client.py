@@ -83,10 +83,14 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Completed: provider activation, Telegram Hermes-first orchestration,\n"
         "  prompt/policy tuning, Phase 3 read surfaces, Phase 4 draft boundary,\n"
         "  and Phase 5 persistent action loop.\n"
-        "- Current status: Phase 7 memory candidate + approval-safe write path active.\n"
+        "- Current status: Phase 8 stabilization + daily operating loop hardening active.\n"
         "- Main UX is conversational (e.g., 'pilih nomor 1', 'accept yang tadi').\n"
         "- Do not force slash commands for primary flow.\n"
         "- Do not recommend command-heavy flows as primary UX.\n"
+        "For broad daily status/focus/next-step questions, prefer composed summary:\n"
+        "- paos_operating_summary_get\n"
+        "For daily plan request, prefer:\n"
+        "- paos_daily_plan_get\n"
         "For 'next apa?' style questions, format answer as:\n"
         "1) Status saat ini\n"
         "2) Next step yang direkomendasikan (satu)\n"
@@ -131,7 +135,13 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
         picks.append(("paos_context_health_get", {}))
 
     if has_any("status paos", "kondisi paos", "ringkas kondisi", "paos sekarang", "status sekarang"):
-        picks.append(("paos_runtime_status_get", {}))
+        picks.append(("paos_operating_summary_get", {"category": "ai"}))
+
+    if has_any("apa status paos hari ini", "operating summary", "daily operating summary"):
+        picks.append(("paos_operating_summary_get", {"category": "ai"}))
+
+    if has_any("daily plan", "buat daily plan", "context memory source"):
+        picks.append(("paos_daily_plan_get", {"category": "ai"}))
 
     if has_any("dashboard", "dashboard paos"):
         picks.append(("paos_dashboard_get", {}))
@@ -182,8 +192,8 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
 
     # "next apa" type benefits from status + dashboard grounding.
     if has_any("next buat paos", "next apa", "selanjutnya apa"):
-        if ("paos_runtime_status_get", {}) not in picks:
-            picks.append(("paos_runtime_status_get", {}))
+        if ("paos_operating_summary_get", {"category": "ai"}) not in picks:
+            picks.append(("paos_operating_summary_get", {"category": "ai"}))
         if ("paos_dashboard_get", {}) not in picks:
             picks.append(("paos_dashboard_get", {}))
 
@@ -205,6 +215,8 @@ def _prefetch_read_evidence(text: str) -> dict | None:
     tool_map = {
         "paos_context_health_get": getattr(mcp_server, "tool_paos_context_health_get", None),
         "paos_runtime_status_get": getattr(mcp_server, "tool_paos_runtime_status_get", None),
+        "paos_operating_summary_get": getattr(mcp_server, "tool_paos_operating_summary_get", None),
+        "paos_daily_plan_get": getattr(mcp_server, "tool_paos_daily_plan_get", None),
         "paos_dashboard_get": getattr(mcp_server, "tool_paos_dashboard_get", None),
         "paos_daily_get": getattr(mcp_server, "tool_paos_daily_get", None),
         "paos_handoff_get": getattr(mcp_server, "tool_paos_handoff_get", None),

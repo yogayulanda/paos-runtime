@@ -12,6 +12,10 @@ def route_intent(text: str) -> str:
 
     if _contains_any(normalized, ("dashboard", "ringkasan", "overview", "home screen")):
         return "dashboard"
+    if _contains_any(normalized, ("operating summary", "status paos hari ini", "apa status paos hari ini", "daily operating summary")):
+        return "operating_summary"
+    if _contains_any(normalized, ("buat daily plan", "daily plan dari context", "daily plan dari context memory source", "rencana harian dari context")):
+        return "daily_plan"
     if _contains_any(normalized, ("hari ini", "harus ngapain", "prioritas", "today", "daily")):
         return "daily"
     if _contains_any(normalized, ("insight", "relevan", "signal", "penting")):

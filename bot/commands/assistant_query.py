@@ -29,6 +29,7 @@ from assistant.source_intelligence import (  # type: ignore
     get_source_recommendation,
     get_source_status,
 )
+from assistant.mcp import server as mcp_server  # type: ignore
 from assistant.memory import (  # type: ignore
     create_candidate,
     direct_approved_write,
@@ -119,6 +120,62 @@ def _is_forbidden_gateway_request(text: str) -> bool:
             "hidupkan hermes gateway",
         )
     )
+
+def _is_daily_operating_text(text: str) -> bool:
+    lowered = _normalize_text(text)
+    phrases = (
+        "apa status paos hari ini",
+        "status paos hari ini",
+        "daily operating summary",
+        "operating summary",
+        "apa next step saya sekarang",
+        "apa yang perlu saya lakukan selanjutnya",
+        "buat daily plan dari context memory source",
+        "buat daily plan",
+    )
+    return any(p in lowered for p in phrases)
+
+async def _handle_daily_operating(update, text: str) -> bool:
+    lowered = _normalize_text(text)
+    try:
+        if "daily plan" in lowered or "rencana harian" in lowered:
+            payload = mcp_server.tool_paos_daily_plan_get(category="ai")
+            if not payload.get("ok"):
+                await update.message.reply_text("Daily plan belum bisa dibangun sekarang. No external action was applied.")
+                return True
+            sections = payload.get("sections") or {}
+            plan = sections.get("daily_plan") or []
+            next_step = str(sections.get("recommended_next_safe_step") or "Review pending action paling atas.")
+            lines = ["Daily plan hari ini:"]
+            for idx, item in enumerate(plan[:4], start=1):
+                lines.append(f"{idx}. {str(item)}")
+            lines.append(f"Next safe step: {next_step}")
+            lines.append("No external action was applied.")
+            await update.message.reply_text("\n".join(lines)[:3900])
+            return True
+
+        payload = mcp_server.tool_paos_operating_summary_get(category="ai")
+        if not payload.get("ok"):
+            await update.message.reply_text("Operating summary belum tersedia. Coba cek lagi sebentar.")
+            return True
+        sections = payload.get("sections") or {}
+        focus = (sections.get("focus") or {}).get("current_focus") or "Belum ada fokus"
+        pending = (sections.get("focus") or {}).get("pending_action_count")
+        source_summary = (sections.get("source_intelligence") or {}).get("latest_insight_summary") or "-"
+        memory_summary = (sections.get("memory_health") or {}).get("summary") or "-"
+        next_step = sections.get("recommended_next_safe_step") or "Review action pending paling atas."
+        lines = [
+            "Status PAOS hari ini:",
+            f"- Fokus: {focus}",
+            f"- Pending action: {pending}",
+            f"- Source insight: {source_summary}",
+            f"- Memory health: {memory_summary}",
+            f"- Next safe step: {next_step}",
+        ]
+        await update.message.reply_text("\n".join(lines)[:3900])
+        return True
+    except Exception:
+        return False
 
 
 def _extract_memory_type(text: str) -> str:
@@ -442,6 +499,10 @@ async def handle_free_text_query(update, context):
             return
     if await _handle_source_intelligence(update, text):
         return
+    if _is_daily_operating_text(text):
+        _trace_route("free-text", text, "phase8_daily_operating")
+        if await _handle_daily_operating(update, text):
+            return
     if await _handle_memory_intent(update, text):
         _trace_route("free-text", text, "phase7_memory_intent")
         return
@@ -459,6 +520,12 @@ async def handle_free_text_query(update, context):
     if intent == "daily":
         await handle_daily(update)
         return
+    if intent == "operating_summary":
+        if await _handle_daily_operating(update, text):
+            return
+    if intent == "daily_plan":
+        if await _handle_daily_operating(update, "daily plan"):
+            return
     if intent == "dashboard":
         await handle_dashboard(update)
         return
