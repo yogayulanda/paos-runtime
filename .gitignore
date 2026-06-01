@@ -31,6 +31,7 @@ intelligence/candidates/**
 intelligence/signals/**
 intelligence/digests/**
 intelligence/insights/**
+intelligence/opportunities/**
 .runtime/runs/**
 debug/
 __pycache__/
@@ -43,3 +44,14 @@ __pycache__/
 # PAOS local external-agent orchestration runtime state
 /assistant/agent-orchestration/*
 !/assistant/agent-orchestration/.gitkeep
+
+# Local manual runtime snapshots (Phase 10)
+backups/snapshots/**
+!backups/snapshots/.gitkeep
+
+# Common local test/runtime noise
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage*

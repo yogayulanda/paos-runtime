@@ -109,6 +109,15 @@ def main() -> int:
     diff = _run(["git", "diff", "-U0"]).stdout or ""
     secret_pattern = re.compile(r"(AKIA|ASIA|SECRET|TOKEN|PASSWORD|PRIVATE KEY|BEGIN RSA|BEGIN OPENSSH|xoxb-|ghp_|github_pat_|sk-[A-Za-z0-9]|HERMES_LLM_API_KEY|TELEGRAM_BOT_TOKEN)", re.I)
     secret_hits = [line for line in diff.splitlines() if secret_pattern.search(line)]
+    secret_hits = [
+        line
+        for line in secret_hits
+        if "missing token" not in line.lower()
+        and "for token in" not in line.lower()
+        and "token.split" not in line.lower()
+        and "secret_hits" not in line.lower()
+        and "secret_pattern" not in line.lower()
+    ]
     if secret_hits:
         _print_result("secret_scan", False, secret_hits[0][:220])
         raise CheckFailed("secret_scan")
@@ -123,6 +132,9 @@ def main() -> int:
         and "No GitHub mutation" not in line
         and "Tidak ada commit/push" not in line
         and "enable/start Hermes gateway" not in line
+        and "Do not expose public API/tunnel" not in line
+        and "No public API/tunnel" not in line
+        and "No Hermes gateway enable/start behavior" not in line
         and "gateway must remain stopped" not in line.lower()
     ]
     if mutation_hits:

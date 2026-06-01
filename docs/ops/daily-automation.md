@@ -1,66 +1,48 @@
-# PAOS Daily Automation (Task 5B)
+# PAOS Daily Automation
 
-Manual first-run recommendation:
+Daily run stays simple and local. Telegram remains the primary user-facing surface.
+
+## Manual run (recommended baseline)
 
 ```bash
 cd /home/ubuntu/paos/paos-runtime
-venv/bin/python runtime/jobs/run_daily_paos.py --category ai
+venv/bin/python runtime/intelligence/jobs/run_daily_intelligence.py --category ai
 ```
 
-Important notes:
-- Cron/systemd install is manual only.
-- Telegram commands read latest artifacts only; they do not trigger this pipeline.
-- Scheduler should run outside Telegram bot process.
-- Runner writes daily status JSON to:
-  - `.runtime/runs/daily-paos/latest.json`
-  - `.runtime/runs/daily-paos/YYYY-MM-DD.json`
+Notes:
+- Scheduler/cron/systemd changes are manual and optional.
+- Telegram reads existing artifacts; it is not the scheduler process.
+- Keep runner process independent from Telegram bot process.
 
-Optional flags:
-- `--date YYYY-MM-DD` (passes date to date-aware jobs)
-- `--continue-on-collector-warning true|false` (default `true`)
-- `--dry-run`
-- `--notify-telegram` (reserved/no-op warning in MVP)
+## Optional scheduler examples (manual only)
 
-Cron example (manual deployment):
+Cron example:
 
 ```cron
-30 8 * * * cd /home/ubuntu/paos/paos-runtime && /home/ubuntu/paos/paos-runtime/venv/bin/python runtime/jobs/run_daily_paos.py --category ai >> logs/daily-paos.log 2>&1
+30 8 * * * cd /home/ubuntu/paos/paos-runtime && /home/ubuntu/paos/paos-runtime/venv/bin/python runtime/intelligence/jobs/run_daily_intelligence.py --category ai >> /home/ubuntu/paos/paos-runtime/.runtime/logs/daily-intelligence.log 2>&1
 ```
 
-Systemd timer sketch (manual deployment):
+Systemd timer sketch (manual deployment if explicitly desired):
+- Use `runtime/intelligence/jobs/run_daily_intelligence.py`
+- Do not add auto-mutation from PAOS runtime code.
 
-`/etc/systemd/system/paos-daily.service`
-```ini
-[Unit]
-Description=PAOS Daily Automation Runner
+## Phase 10 validation standard
 
-[Service]
-Type=oneshot
-WorkingDirectory=/home/ubuntu/paos/paos-runtime
-ExecStart=/home/ubuntu/paos/paos-runtime/venv/bin/python runtime/jobs/run_daily_paos.py --category ai
+Single readiness runner:
+
+```bash
+venv/bin/python runtime/assistant/jobs/validate_commit_readiness.py
 ```
 
-`/etc/systemd/system/paos-daily.timer`
-```ini
-[Unit]
-Description=Run PAOS daily automation every day at 08:30
+Expected outputs include:
+- host checks using `venv/bin/python`
+- Docker MCP smoke status (clear PASS/SKIP/FAIL)
+- runtime artifact ignore audit
+- final gateway state:
+  - `hermes_gateway_status=stopped_expected`
+  - `gateway_running=False`
 
-[Timer]
-OnCalendar=*-*-* 08:30:00
-Persistent=true
+## Gateway operating note
 
-[Install]
-WantedBy=timers.target
-```
-
-## Phase 9 Validation Standard
-
-Gunakan runner tunggal commit-readiness:
-
-`venv/bin/python runtime/assistant/jobs/validate_commit_readiness.py`
-
-Catatan:
-- Runner memakai interpreter project venv (`venv/bin/python`) untuk host checks.
-- Docker MCP smoke dijalankan lewat container `paos-hermes` dan interpreter `/opt/hermes/.venv/bin/python`.
-- Jika Docker/container tidak tersedia, check container ditandai skip jelas (bukan false pass).
-- Gateway final harus `hermes_gateway_status=stopped_expected` dan `gateway_running=False`.
+Hermes gateway should stay stopped in normal PAOS operation.
+Validation may check status and assert final stopped state. Do not add code that starts/enables gateway.

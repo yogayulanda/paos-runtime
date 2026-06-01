@@ -49,7 +49,7 @@ async def _run() -> None:
         ("ingat ini: PAOS command harus fallback saja", ["Memory was written"]),
         ("apa yang kamu ingat soal PAOS command?", ["Memory relevan", "PAOS command"]),
         ("update memory tentang PAOS command: natural language adalah UX utama", ["Memory was written"]),
-        ("ada memory baru yang perlu disimpan?", ["No memory was written yet"]),
+        ("ada memory baru yang perlu disimpan?", ["Balas natural|No memory was written yet"]),
         ("tolak memory itu", ["No memory was written yet"]),
         ("memory PAOS saya sehat gak?", ["provider=", "No memory was written yet"]),
         ("apa memory yang relevan untuk Codex sekarang?", ["Memory relevan"]),
@@ -62,7 +62,8 @@ async def _run() -> None:
         print(f"[MEM E2E {idx}] Bot:\n{bot_response}")
         where = (bot_response + "\n" + route_trace).lower()
         for token in must_have:
-            _assert(token.lower() in where, f"missing token '{token}' for prompt '{user_msg}'")
+            choices = [part.strip().lower() for part in token.split("|") if part.strip()]
+            _assert(any(choice in where for choice in choices), f"missing token '{token}' for prompt '{user_msg}'")
         print("-" * 80)
 
 

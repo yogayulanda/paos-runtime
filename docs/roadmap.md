@@ -1,91 +1,41 @@
-# PAOS Roadmap
+# PAOS Roadmap and Status
 
-## v0
+## Current status
 
-Runtime Foundation
+Completed phases:
+- Phase 4: Agentic Draft + Approval Boundary
+- Phase 5: Persistent Conversational Action Loop
+- Phase 5B: UX Cleanup & External Agent Usability
+- Phase 6: Source Intelligence Expansion
+- Phase 7: Approval-Safe Memory Layer
+- Phase 8: Daily Operating Loop Hardening
+- Phase 9: Runtime-Stable External Agent Orchestration
 
-Completed:
+Phase 10:
+- Production Hardening & Release Readiness (in progress)
 
-* Telegram Bot
-* Context Loader
-* Service Layer
-* Command Layer
-* Install Script
-* Doctor Script
-* Runtime / Context Separation
+## Current PAOS capabilities
 
----
+- Natural-language-first Telegram operation.
+- Local action-loop (proposed/accepted/rejected/deferred) with safe state transitions.
+- Source intelligence pipeline (raw -> candidates -> signals -> digest -> insight).
+- Approval-safe memory candidate and approved write flow.
+- External agent orchestration as draft/manual handoff and review artifacts.
+- MCP read/draft/local-state surfaces over stdio transport.
 
-## v0.1
+## Current safety boundaries
 
-Runtime Specification
+- No external apply/write execution path.
+- No GitHub mutation path.
+- No scheduler/cron/systemd mutation path from runtime.
+- No public API/tunnel exposure.
+- No Hermes gateway enable/start behavior.
+- No silent durable memory writes.
 
-Goals:
+## Optional post-v1 ideas
 
-* Runtime Contract
-* Context Contract
-* Memory Contract
-* Command Contract
+- Further source quality scoring and ranking tuning.
+- Additional compact ops dashboards.
+- Optional UX polish where it improves daily clarity.
 
----
-
-## v0.2
-
-Threads Collector
-
-Goals:
-
-* Collect AI posts
-* Collect Tech posts
-* Rank by engagement
-* Store raw intelligence
-
----
-
-## v0.3
-
-Intelligence Digest
-
-Goals:
-
-* RSS + Threads
-* Category Digest
-* Trend Detection
-
----
-
-## v0.4
-
-Content Opportunity Engine
-
-Goals:
-
-* Content Ideas
-* Repost Candidates
-* Reply Opportunities
-* Trend Analysis
-
----
-
-## v0.5
-
-Mnemosyne Integration
-
-Goals:
-
-* Session Memory
-* Cross Tool Memory
-* Memory Promotion
-
----
-
-## v1.0
-
-PAOS Core
-
-Goals:
-
-* Stable Runtime
-* Stable Context Schema
-* Stable Memory Flow
-* Portable Installation
+These are optional and should not weaken current safety/ops boundaries.
