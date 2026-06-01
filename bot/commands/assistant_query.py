@@ -34,6 +34,10 @@ from assistant.memory import (  # type: ignore
 )
 
 
+def _has_any_phrase(text: str, phrases: tuple[str, ...]) -> bool:
+    return any(p in text for p in phrases)
+
+
 def _trace_route(stage: str, text: str, route: str) -> None:
     compact = " ".join(str(text or "").split())[:180]
     print(f"[paos-route] stage={stage} route={route} text='{compact}'", flush=True)
@@ -105,7 +109,7 @@ def _is_action_loop_text(text: str) -> bool:
         r"\bbuat action hari ini\b",
         r"\bbuat daily action\b",
         r"\bapa action pending saya\b",
-        r"\baction saya\b",
+        r"\bapa action pending saya\b",
         r"\blist action\b",
         r"\bapa fokus saya sekarang\b",
         r"\bapa yang harus saya kerjakan sekarang\b",
@@ -139,16 +143,36 @@ def _is_forbidden_gateway_request(text: str) -> bool:
 def _is_daily_operating_text(text: str) -> bool:
     lowered = _normalize_text(text)
     phrases = (
+        "pagi, hari ini fokus apa",
+        "pagi hari ini fokus apa",
+        "hari ini fokus apa",
         "apa status paos hari ini",
         "status paos hari ini",
         "daily operating summary",
         "operating summary",
+        "apa next terbaik sekarang",
+        "next terbaik sekarang",
         "apa next step saya sekarang",
         "apa yang perlu saya lakukan selanjutnya",
+        "apa yang menarik hari ini",
+        "review action saya",
         "buat daily plan dari context memory source",
         "buat daily plan",
     )
     return any(p in lowered for p in phrases)
+
+
+def _is_weekly_review_text(text: str) -> bool:
+    lowered = _normalize_text(text)
+    return _has_any_phrase(
+        lowered,
+        (
+            "review minggu ini",
+            "weekly review",
+            "ringkas minggu ini",
+            "minggu ini gimana",
+        ),
+    )
 
 
 def _is_agent_orchestration_text(text: str) -> bool:
@@ -279,6 +303,41 @@ async def _handle_agent_orchestration(update, text: str) -> bool:
 async def _handle_daily_operating(update, text: str) -> bool:
     lowered = _normalize_text(text)
     try:
+        if _is_weekly_review_text(text):
+            summary = mcp_server.tool_paos_operating_summary_get(category="ai")
+            source = mcp_server.tool_paos_source_insight_get(category="ai", limit=3)
+            focus_section = (summary.get("sections") or {}).get("focus") or {}
+            source_section = (summary.get("sections") or {}).get("source_intelligence") or {}
+            memory_candidates = list_candidates(status="candidate", limit=3).get("items") or []
+
+            accepted = action_loop_list_actions(state="accepted", limit=1, remember_list=False)
+            pending = [
+                a for a in action_loop_list_actions(limit=20, remember_list=False)
+                if a.state in {"proposed", "deferred"}
+            ][:3]
+
+            interesting = source.get("items") or []
+            lines = ["Review minggu ini:"]
+            lines.append(f"- Fokus aktif: {focus_section.get('current_focus') or (accepted[0].title if accepted else 'Belum ada accepted focus')}")
+            lines.append(f"- Pending fokus: {len(pending)} action")
+            if pending:
+                lines.append(f"- Pending teratas: {pending[0].title}")
+            if interesting:
+                lines.append(f"- Signal menarik: {str(interesting[0].get('title') or '-')[:180]}")
+            else:
+                lines.append(f"- Signal menarik: {source_section.get('latest_insight_summary') or '-'}")
+            if memory_candidates:
+                lines.append(f"- Memory candidate highlight: {str(memory_candidates[0].get('content') or '-')[:160]}")
+            else:
+                lines.append("- Memory candidate highlight: belum ada candidate baru")
+            lines.append(
+                "- Rekomendasi fokus minggu depan: "
+                + str((summary.get("sections") or {}).get("recommended_next_safe_step") or "Tutup 1 pending action prioritas tinggi terlebih dulu.")
+            )
+            lines.append("No external action was applied.")
+            await update.message.reply_text("\n".join(lines)[:3900])
+            return True
+
         if "daily plan" in lowered or "rencana harian" in lowered:
             payload = mcp_server.tool_paos_daily_plan_get(category="ai")
             if not payload.get("ok"):
@@ -291,6 +350,50 @@ async def _handle_daily_operating(update, text: str) -> bool:
             for idx, item in enumerate(plan[:4], start=1):
                 lines.append(f"{idx}. {str(item)}")
             lines.append(f"Next safe step: {next_step}")
+            lines.append("No external action was applied.")
+            await update.message.reply_text("\n".join(lines)[:3900])
+            return True
+
+        if _has_any_phrase(lowered, ("apa yang menarik hari ini", "yang menarik hari ini", "interesting today")):
+            payload = mcp_server.tool_paos_source_insight_get(category="ai", limit=3)
+            items = payload.get("items") or []
+            if not items:
+                await update.message.reply_text("Belum ada signal menarik hari ini. No external action was applied.")
+                return True
+            lines = ["Yang menarik hari ini:"]
+            for idx, item in enumerate(items[:3], start=1):
+                lines.append(f"{idx}. {str(item.get('title') or '-')[:180]}")
+            lines.append("No external action was applied.")
+            await update.message.reply_text("\n".join(lines)[:3900])
+            return True
+
+        if _has_any_phrase(lowered, ("apa next terbaik sekarang", "next terbaik sekarang", "next best action", "apa next step saya sekarang")):
+            payload = mcp_server.tool_paos_operating_summary_get(category="ai")
+            sections = payload.get("sections") or {}
+            recommended = str(sections.get("recommended_next_safe_step") or "Review pending action paling atas.")
+            focus = (sections.get("focus") or {}).get("current_focus") or "Belum ada fokus aktif"
+            lines = [
+                "Next terbaik sekarang:",
+                f"- Fokus saat ini: {focus}",
+                f"- Rekomendasi: {recommended}",
+                "- Status: rekomendasi ini belum dieksekusi.",
+                "No external action was applied.",
+            ]
+            await update.message.reply_text("\n".join(lines)[:3900])
+            return True
+
+        if _has_any_phrase(lowered, ("review action saya", "review action", "ulasan action saya")):
+            accepted = action_loop_list_actions(state="accepted", limit=1, remember_list=False)
+            pending = [
+                a for a in action_loop_list_actions(limit=20, remember_list=False)
+                if a.state in {"proposed", "deferred"}
+            ][:3]
+            lines = ["Review action saat ini:"]
+            lines.append(f"- Focus terpilih: {accepted[0].title if accepted else 'Belum ada accepted focus'}")
+            lines.append(f"- Pending action: {len(pending)}")
+            if pending:
+                lines.append(f"- Priority pending: {pending[0].title}")
+            lines.append("- Catatan: accepted = focus terpilih, bukan eksekusi.")
             lines.append("No external action was applied.")
             await update.message.reply_text("\n".join(lines)[:3900])
             return True
@@ -312,6 +415,7 @@ async def _handle_daily_operating(update, text: str) -> bool:
             f"- Source insight: {source_summary}",
             f"- Memory health: {memory_summary}",
             f"- Next safe step: {next_step}",
+            "No external action was applied.",
         ]
         await update.message.reply_text("\n".join(lines)[:3900])
         return True
@@ -480,7 +584,7 @@ async def _handle_action_loop(update, text: str) -> bool:
         await update.message.reply_text(message[:3900])
         return True
 
-    if "pending" in lowered or "action saya" in lowered or "list action" in lowered:
+    if "pending" in lowered or "apa action pending saya" in lowered or "list action" in lowered:
         _trace_route("action-loop", text, "phase5_action_loop:list_pending")
         actions = action_loop_list_actions(limit=30, remember_list=False)
         pending = [
@@ -658,6 +762,11 @@ async def handle_free_text_query(update, context):
         _trace_route("free-text", text, "greeting_fallback")
         await update.message.reply_text(_render_greeting_message())
         return
+
+    if _is_daily_operating_text(text) or _is_weekly_review_text(text):
+        _trace_route("free-text", text, "daily_ux_fallback_after_hermes")
+        if await _handle_daily_operating(update, text):
+            return
 
     if not hermes_attempted:
         _trace_route("free-text", text, "unknown_after_hermes_unavailable")

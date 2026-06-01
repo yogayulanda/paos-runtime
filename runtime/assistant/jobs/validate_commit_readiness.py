@@ -148,6 +148,7 @@ def main() -> int:
 
     _run_required("runtime_status_smoke", [py, "-c", "import sys;sys.path.insert(0,'runtime');from assistant.mcp.server import tool_paos_runtime_status_get as f;print((f().get('sections') or {}).get('hermes_gateway_status'))"]) 
     _run_required("smoke_action_loop", [py, "runtime/assistant/jobs/smoke_action_loop.py"])
+    _run_required("e2e_daily_ux_handler", [py, "runtime/assistant/jobs/e2e_daily_ux_handler.py"])
     _run_required("e2e_action_loop_handler", [py, "runtime/assistant/jobs/e2e_action_loop_handler.py"])
     _run_e2e_memory_isolated(py)
     _run_required("smoke_agent_orchestration", [py, "runtime/assistant/jobs/smoke_agent_orchestration.py"])
