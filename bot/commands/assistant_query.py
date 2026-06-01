@@ -567,25 +567,38 @@ async def _handle_memory_intent(update, text: str) -> bool:
             await update.message.reply_text("Isi memory belum jelas. Tulis singkat apa yang mau disimpan.")
             return True
         memory_type = _extract_memory_type(text)
+        candidate = create_candidate(
+            content,
+            memory_type=memory_type,
+            source_type="manual_user_instruction",
+            source_ref="telegram/free-text",
+            evidence_summary=f"Instruksi user eksplisit: {_normalize_text(text)[:160]}",
+            confidence=0.95,
+            status="candidate",
+            metadata={"explicit_request": True, "approval_required": True},
+        )
+        if not candidate.get("ok"):
+            await update.message.reply_text("Gagal membuat memory candidate untuk approval. No memory was written yet.")
+            return True
+        candidate_payload = candidate.get("candidate") or {}
+        candidate_id = str(candidate_payload.get("candidate_id") or "")
         proposal = mcp_server.tool_paos_approval_propose(
             source="telegram/free-text",
             requested_by="user",
             proposed_operation="promote memory candidate from explicit free-text memory write",
             operation_type="memory_candidate_promotion",
-            evidence_refs=["telegram/free-text", f"query:{_normalize_text(text)[:120]}"],
+            evidence_refs=["telegram/free-text", f"query:{_normalize_text(text)[:120]}", f"candidate_id:{candidate_id}"],
             payload_preview={
-                "content": content,
+                "candidate_id": candidate_id,
+                "content_preview": content[:180],
                 "memory_type": memory_type,
-                "source_type": "manual_user_instruction",
-                "source_ref": "telegram/free-text",
-                "evidence_summary": f"Instruksi user eksplisit: {_normalize_text(text)[:160]}",
-                "requires_manual_candidate_creation": True,
             },
         )
         approval = proposal.get("approval") or {}
         await update.message.reply_text(
             (
                 "Permintaan disiapkan sebagai approval (belum dieksekusi).\n"
+                f"- candidate_id: {candidate_id}\n"
                 f"- approval_id: {approval.get('approval_id')}\n"
                 f"- risk: {approval.get('risk_level')}\n"
                 "Lanjutkan: approve approval ini, lalu apply approval ini.\n"
@@ -878,6 +891,7 @@ async def _handle_approval(update, text: str) -> bool:
             f"- risk: {item.get('risk_level')}",
             f"- evidence: {', '.join(item.get('evidence_refs') or ['-'])}",
             f"- payload_preview: {str(preview)[:220]}",
+            f"- mode: {preview.get('mode') or '-'}",
             "Belum dieksekusi. Gunakan explicit: apply approval ...",
             "No external action was applied.",
         ]
@@ -905,6 +919,7 @@ async def _handle_approval(update, text: str) -> bool:
             (
                 f"Approval {item.get('approval_id')} -> {item.get('status')}.\n"
                 "Approve hanya mengubah status, belum apply.\n"
+                f"Mode: {((item.get('payload_preview') or {}).get('mode') or '-')}\n"
                 "Gunakan explicit: apply approval ...\n"
                 "No external action was applied."
             )[:3900]
@@ -926,7 +941,7 @@ async def _handle_approval(update, text: str) -> bool:
         await update.message.reply_text(
             (
                 f"Apply selesai untuk {item.get('approval_id')} dengan status {item.get('status')}.\n"
-                f"Operation: {item.get('operation_type')} (local-only).\n"
+                f"Operation: {item.get('operation_type')} ({((item.get('payload_preview') or {}).get('mode') or 'local-only')}).\n"
                 "No external action was applied."
             )[:3900]
         )
@@ -1003,14 +1018,16 @@ async def handle_free_text_query(update, context):
             proposed_operation=text,
             operation_type="future_external_write",
             evidence_refs=["telegram/free-text"],
-            payload_preview={"request": text[:240]},
+            payload_preview={"request": text[:240], "external_operation": "github_pr_create" if "github" in _normalize_text(text) else "public_api_publish"},
         )
         approval = proposal.get("approval") or {}
+        preview = approval.get("payload_preview") if isinstance(approval.get("payload_preview"), dict) else {}
         await update.message.reply_text(
             (
                 "Permintaan diblokir oleh safety policy v1.5a.\n"
                 f"- approval_id: {approval.get('approval_id')}\n"
                 f"- status: {approval.get('status')}\n"
+                f"- mode: {preview.get('mode') or 'blocked'}\n"
                 "- reason: external/unsafe mutation tidak diizinkan pada controlled execution foundation.\n"
                 "No external action was applied."
             )[:3900]

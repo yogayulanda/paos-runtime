@@ -69,6 +69,23 @@ async def _run() -> None:
     _assert(app.get("ok"), "apply should pass for safe local action update")
     _assert((app.get("approval") or {}).get("status") == "applied", "status must be applied")
 
+    mem_resp, _ = await _ask("ingat ini: prefer saya ringkas dan evidence-first")
+    mem_where = mem_resp.lower()
+    _assert("candidate_id:" in mem_where and "approval_id:" in mem_where, "explicit memory should create candidate+approval")
+    mem_pending = mcp_server.tool_paos_approval_list(status="pending", limit=20).get("items") or []
+    mem_item = next((x for x in mem_pending if x.get("operation_type") == "memory_candidate_promotion"), None)
+    _assert(mem_item is not None, "pending memory approval expected")
+    mem_preview = mem_item.get("payload_preview") if isinstance(mem_item.get("payload_preview"), dict) else {}
+    _assert(bool(mem_preview.get("candidate_id")), "memory approval must reference candidate_id")
+    mem_id = str(mem_item.get("approval_id") or "")
+    _assert(mcp_server.tool_paos_approval_decide(approval_id=mem_id, decision="approve", actor="e2e").get("ok"), "memory approve failed")
+    mem_apply = mcp_server.tool_paos_approval_apply(approval_id=mem_id, actor="e2e")
+    _assert(mem_apply.get("ok"), "memory apply failed")
+    _assert((mem_apply.get("approval") or {}).get("status") == "applied", "memory approval not applied")
+
+    inferred_resp, _ = await _ask("kayaknya perlu diingat: ini kandidat saja")
+    _assert("memory candidate dibuat" in inferred_resp.lower(), "inferred memory should remain candidate-only")
+
     rej = mcp_server.tool_paos_approval_propose(
         source="e2e",
         requested_by="e2e",
@@ -87,6 +104,7 @@ async def _run() -> None:
     blocked_resp, blocked_trace = await _ask("tolong commit dan push ke github")
     blocked_where = (blocked_resp + "\n" + blocked_trace).lower()
     _assert("diblokir" in blocked_where and "no external action was applied." in blocked_where, "unsafe request must be blocked")
+    _assert("mode: future-disabled" in blocked_where or "mode: blocked" in blocked_where, "blocked request should show disabled mode")
 
     audits = mcp_server.tool_paos_approval_audit_list(limit=50)
     audit_items = audits.get("items") or []

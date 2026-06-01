@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -14,6 +15,51 @@ _ALLOWED_APPLY_TYPES = {"local_action_state_update", "memory_candidate_promotion
 _BLOCKED_KEYWORDS = (
     "github", "commit", "push", "merge", "pull request", "pr", "systemd", "systemctl", "cron", "scheduler", "gateway start", "enable hermes gateway", "public api", "tunnel", "shell",
 )
+
+
+def _has_blocked_keyword(op: str) -> bool:
+    text = str(op or "").strip().lower()
+    for key in _BLOCKED_KEYWORDS:
+        needle = str(key).strip().lower()
+        if not needle:
+            continue
+        if " " in needle:
+            if needle in text:
+                return True
+            continue
+        if re.search(rf"\b{re.escape(needle)}\b", text):
+            return True
+    return False
+_FUTURE_EXTERNAL_WRITE_WHITELIST = {
+    "github_issue_create": {"enabled": False, "risk": "critical"},
+    "github_pr_create": {"enabled": False, "risk": "critical"},
+    "scheduler_cron_update": {"enabled": False, "risk": "critical"},
+    "systemd_unit_mutation": {"enabled": False, "risk": "critical"},
+    "public_api_publish": {"enabled": False, "risk": "critical"},
+}
+
+
+def _preview_mode(operation_type: str, payload_preview: dict[str, Any]) -> str:
+    if operation_type in _ALLOWED_APPLY_TYPES:
+        return "local-only"
+    if operation_type == "future_external_write":
+        op_key = str(payload_preview.get("external_operation") or "").strip()
+        if op_key and op_key in _FUTURE_EXTERNAL_WRITE_WHITELIST:
+            return "future-disabled"
+    return "blocked"
+
+
+def _preview_payload(operation_type: str, payload_preview: dict[str, Any]) -> dict[str, Any]:
+    preview = dict(payload_preview or {})
+    preview["mode"] = _preview_mode(operation_type, preview)
+    if operation_type == "future_external_write":
+        op_key = str(preview.get("external_operation") or "").strip()
+        meta = _FUTURE_EXTERNAL_WRITE_WHITELIST.get(op_key) if op_key else None
+        preview["dry_run"] = True
+        preview["external_write_enabled"] = False
+        preview["whitelist_match"] = bool(meta)
+        preview["whitelist_risk"] = (meta or {}).get("risk")
+    return preview
 
 
 def _event(event_type: str, approval_id: str, actor: str, message: str = "", detail: dict[str, Any] | None = None) -> ApprovalEvent:
@@ -38,7 +84,7 @@ def _persist_with_event(record: ApprovalRecord, event: ApprovalEvent) -> Approva
 def classify_operation(proposed_operation: str, operation_type: str | None = None) -> tuple[str, str, bool]:
     op = str(proposed_operation or "").strip().lower()
     otype = str(operation_type or "").strip().lower()
-    blocked = any(k in op for k in _BLOCKED_KEYWORDS)
+    blocked = _has_blocked_keyword(op)
     if blocked:
         return "blocked", "critical", True
     if otype in {"read_only", "draft_only"}:
@@ -60,7 +106,9 @@ def create_approval(
     evidence_refs: list[str] | None = None,
     payload_preview: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    raw_preview = payload_preview if isinstance(payload_preview, dict) else {}
     normalized_type, risk_level, blocked = classify_operation(proposed_operation, operation_type)
+    normalized_preview = _preview_payload(normalized_type, raw_preview)
     status = "blocked" if blocked else "pending"
     record = ApprovalRecord(
         approval_id=make_approval_id(),
@@ -70,10 +118,23 @@ def create_approval(
         operation_type=normalized_type,
         risk_level=risk_level,
         evidence_refs=[str(x) for x in (evidence_refs or [])],
-        payload_preview=payload_preview if isinstance(payload_preview, dict) else {},
+        payload_preview=normalized_preview,
         status=status,
     )
-    event = _event("proposed" if not blocked else "blocked", record.approval_id, requested_by, message="approval created")
+    reason = "external_write_disabled" if normalized_type == "future_external_write" else ("unsafe_operation_blocked" if blocked else "awaiting_decision")
+    event = _event(
+        "proposed" if not blocked else "blocked",
+        record.approval_id,
+        requested_by,
+        message="approval created",
+        detail={
+            "operation_type": record.operation_type,
+            "risk_level": record.risk_level,
+            "source": record.source,
+            "requested_by": record.requested_by,
+            "reason": reason,
+        },
+    )
     _persist_with_event(record, event)
     return {"ok": True, "approval": record.to_dict(), "blocked": blocked, "warnings": [], "errors": []}
 
@@ -101,7 +162,13 @@ def decide_approval(approval_id: str, decision: str, actor: str) -> dict[str, An
         return {"ok": False, "warnings": [], "errors": ["invalid_decision"]}
     record.status = normalized
     record.decided_at = now_iso()
-    evt = _event(normalized, record.approval_id, actor, message=f"approval {normalized}")
+    evt = _event(
+        normalized,
+        record.approval_id,
+        actor,
+        message=f"approval {normalized}",
+        detail={"operation_type": record.operation_type, "risk_level": record.risk_level, "source": record.source, "reason": "manual_decision"},
+    )
     _persist_with_event(record, evt)
     return {"ok": True, "approval": record.to_dict(), "warnings": [], "errors": []}
 
@@ -114,7 +181,13 @@ def apply_approval(approval_id: str, actor: str) -> dict[str, Any]:
         return {"ok": False, "warnings": [], "errors": [f"approval_not_approved:{record.status}"]}
     if record.operation_type not in _ALLOWED_APPLY_TYPES:
         record.status = "blocked"
-        evt = _event("blocked", record.approval_id, actor, message="apply blocked by policy")
+        evt = _event(
+            "blocked",
+            record.approval_id,
+            actor,
+            message="apply blocked by policy",
+            detail={"operation_type": record.operation_type, "risk_level": record.risk_level, "source": record.source, "reason": "operation_not_allowed_in_v1_5b"},
+        )
         _persist_with_event(record, evt)
         return {"ok": False, "warnings": [], "errors": ["operation_blocked_in_v1_5a"]}
 
@@ -142,12 +215,24 @@ def apply_approval(approval_id: str, actor: str) -> dict[str, Any]:
 
         record.status = "applied"
         record.applied_at = now_iso()
-        evt = _event("applied", record.approval_id, actor, message="approval applied", detail={"operation_type": record.operation_type})
+        evt = _event(
+            "applied",
+            record.approval_id,
+            actor,
+            message="approval applied",
+            detail={"operation_type": record.operation_type, "risk_level": record.risk_level, "source": record.source, "reason": "local_safe_apply"},
+        )
         _persist_with_event(record, evt)
         return {"ok": True, "approval": record.to_dict(), "warnings": [], "errors": []}
     except Exception as exc:
         record.status = "failed"
-        evt = _event("failed", record.approval_id, actor, message=f"apply failed: {exc}")
+        evt = _event(
+            "failed",
+            record.approval_id,
+            actor,
+            message=f"apply failed: {exc}",
+            detail={"operation_type": record.operation_type, "risk_level": record.risk_level, "source": record.source, "reason": "local_apply_failure"},
+        )
         _persist_with_event(record, evt)
         return {"ok": False, "approval": record.to_dict(), "warnings": [], "errors": [str(exc)]}
 
