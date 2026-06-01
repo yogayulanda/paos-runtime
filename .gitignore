@@ -23,6 +23,9 @@ assistant/context/
 assistant/briefs/
 assistant/opportunities/
 runtime/assistant/memory/local.jsonl
+runtime/assistant/memory/runtime/*
+!runtime/assistant/memory/runtime/.gitkeep
+runtime/assistant/memory/mnemosyne-data/**
 intelligence/raw/**
 intelligence/candidates/**
 intelligence/signals/**

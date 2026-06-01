@@ -12,7 +12,18 @@ from assistant.config import resolve_category
 from assistant.diagnostics import run_diagnostics
 from assistant.brief import resolve_latest_assistant_brief
 from assistant.opportunities import resolve_latest_assistant_opportunities
-from assistant.memory import MemoryQuery, MemoryWrite, load_memory_provider
+from assistant.memory import (
+    MemoryQuery,
+    MemoryWrite,
+    create_candidate,
+    direct_approved_write,
+    list_candidates,
+    load_memory_provider,
+    memory_health_get,
+    memory_profile_get,
+    memory_relevant_get,
+    transition_candidate,
+)
 from assistant.actions import create_action_draft, get_action_policy
 from assistant.source_intelligence import (
     create_action_from_latest_insight,
@@ -308,6 +319,92 @@ def tool_paos_memory_recall(
         }
     except Exception as exc:
         return _error_payload(category=category, warnings=warnings, errors=[str(exc)], items=[])
+
+
+def tool_paos_memory_profile_get(
+    scope: str | None = None,
+    category: str | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    try:
+        return memory_profile_get(scope=scope, category=category, limit=limit)
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)])
+
+
+def tool_paos_memory_relevant_get(
+    query: str = "",
+    category: str | None = None,
+    scope: str | None = None,
+    limit: int = 6,
+) -> dict[str, Any]:
+    try:
+        return memory_relevant_get(query=query, category=category, scope=scope, limit=limit)
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)], items=[])
+
+
+def tool_paos_memory_candidate_create(
+    content: str,
+    type: str | None = None,
+    source_type: str | None = None,
+    source_ref: str | None = None,
+    evidence_summary: str | None = None,
+    confidence: float = 0.7,
+) -> dict[str, Any]:
+    try:
+        return create_candidate(
+            content,
+            memory_type=type,
+            source_type=source_type,
+            source_ref=source_ref,
+            evidence_summary=evidence_summary,
+            confidence=confidence,
+        )
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)])
+
+
+def tool_paos_memory_candidate_list(status: str | None = None, limit: int = 10) -> dict[str, Any]:
+    try:
+        return list_candidates(status=status, limit=limit)
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)], items=[])
+
+
+def tool_paos_memory_candidate_transition(candidate_id: str, transition: str) -> dict[str, Any]:
+    try:
+        return transition_candidate(candidate_id=candidate_id, transition=transition)
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)])
+
+
+def tool_paos_memory_approved_write(
+    content: str,
+    type: str | None,
+    source_type: str,
+    source_ref: str,
+    evidence_summary: str,
+    confidence: float = 0.9,
+) -> dict[str, Any]:
+    try:
+        return direct_approved_write(
+            content,
+            memory_type=type,
+            source_type=source_type,
+            source_ref=source_ref,
+            evidence_summary=evidence_summary,
+            confidence=confidence,
+        )
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)])
+
+
+def tool_paos_memory_health_get() -> dict[str, Any]:
+    try:
+        return memory_health_get()
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)])
 
 
 def tool_paos_context_get(
@@ -1122,6 +1219,72 @@ def create_mcp_server():
             return tool_paos_memory_recall(query=query, scope=scope, category=category, limit=limit)
         except Exception as exc:
             return _error_payload(errors=[f"unexpected error: {exc}"], items=[])
+
+    @server.tool(name="paos_memory_profile_get")
+    def paos_memory_profile_get(
+        scope: str | None = None,
+        category: str | None = None,
+        limit: int = 8,
+    ) -> dict[str, Any]:
+        return tool_paos_memory_profile_get(scope=scope, category=category, limit=limit)
+
+    @server.tool(name="paos_memory_relevant_get")
+    def paos_memory_relevant_get(
+        query: str = "",
+        category: str | None = None,
+        scope: str | None = None,
+        limit: int = 6,
+    ) -> dict[str, Any]:
+        return tool_paos_memory_relevant_get(query=query, category=category, scope=scope, limit=limit)
+
+    @server.tool(name="paos_memory_candidate_create")
+    def paos_memory_candidate_create(
+        content: str,
+        type: str | None = None,
+        source_type: str | None = None,
+        source_ref: str | None = None,
+        evidence_summary: str | None = None,
+        confidence: float = 0.7,
+    ) -> dict[str, Any]:
+        return tool_paos_memory_candidate_create(
+            content=content,
+            type=type,
+            source_type=source_type,
+            source_ref=source_ref,
+            evidence_summary=evidence_summary,
+            confidence=confidence,
+        )
+
+    @server.tool(name="paos_memory_candidate_list")
+    def paos_memory_candidate_list(status: str | None = None, limit: int = 10) -> dict[str, Any]:
+        return tool_paos_memory_candidate_list(status=status, limit=limit)
+
+    @server.tool(name="paos_memory_candidate_transition")
+    def paos_memory_candidate_transition(candidate_id: str, transition: str) -> dict[str, Any]:
+        return tool_paos_memory_candidate_transition(candidate_id=candidate_id, transition=transition)
+
+    @server.tool(name="paos_memory_approved_write")
+    def paos_memory_approved_write(
+        content: str,
+        type: str | None,
+        source_type: str,
+        source_ref: str,
+        evidence_summary: str,
+        confidence: float = 0.9,
+    ) -> dict[str, Any]:
+        """Approval-safe memory write entrypoint for normal orchestration flows."""
+        return tool_paos_memory_approved_write(
+            content=content,
+            type=type,
+            source_type=source_type,
+            source_ref=source_ref,
+            evidence_summary=evidence_summary,
+            confidence=confidence,
+        )
+
+    @server.tool(name="paos_memory_health_get")
+    def paos_memory_health_get() -> dict[str, Any]:
+        return tool_paos_memory_health_get()
 
     @server.tool(name="paos_context_get")
     def paos_context_get(

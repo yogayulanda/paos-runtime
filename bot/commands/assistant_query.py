@@ -29,6 +29,15 @@ from assistant.source_intelligence import (  # type: ignore
     get_source_recommendation,
     get_source_status,
 )
+from assistant.memory import (  # type: ignore
+    create_candidate,
+    direct_approved_write,
+    list_candidates,
+    memory_health_get,
+    memory_profile_get,
+    memory_relevant_get,
+    transition_candidate,
+)
 from bot.commands.assistant_surface import (
     _build_handoff_message,
     _build_memory_surface_message,
@@ -72,6 +81,8 @@ def _normalize_text(text: str) -> str:
 
 def _is_action_loop_text(text: str) -> bool:
     lowered = _normalize_text(text)
+    if "memory" in lowered:
+        return False
     if lowered.isdigit():
         return True
     intent_patterns = (
@@ -108,6 +119,130 @@ def _is_forbidden_gateway_request(text: str) -> bool:
             "hidupkan hermes gateway",
         )
     )
+
+
+def _extract_memory_type(text: str) -> str:
+    lowered = _normalize_text(text)
+    if any(x in lowered for x in ("prefer", "suka", "tidak suka")):
+        return "preference"
+    if any(x in lowered for x in ("cara kerja", "workflow", "gaya kerja")):
+        return "working_style"
+    if any(x in lowered for x in ("keputusan", "decide", "diputuskan")):
+        return "decision"
+    if any(x in lowered for x in ("status", "state", "sedang")):
+        return "task_state"
+    if "paos" in lowered:
+        return "project_fact"
+    return "note"
+
+
+def _extract_memory_content(text: str) -> str:
+    raw = str(text or "").strip()
+    cleaned = re.sub(r"^(ingat ini|simpan ini ke memory|simpan ini|update memory tentang)\s*[:\-]?\s*", "", raw, flags=re.I)
+    return cleaned.strip() or raw
+
+
+async def _handle_memory_intent(update, text: str) -> bool:
+    lowered = _normalize_text(text)
+    if not lowered:
+        return False
+
+    if any(x in lowered for x in ("ingat ini", "simpan ini", "update memory")):
+        content = _extract_memory_content(text)
+        if not content:
+            await update.message.reply_text("Isi memory belum jelas. Tulis singkat apa yang mau disimpan.")
+            return True
+        memory_type = _extract_memory_type(text)
+        result = direct_approved_write(
+            content,
+            memory_type=memory_type,
+            source_type="manual_user_instruction",
+            source_ref="telegram/free-text",
+            evidence_summary=f"Instruksi user eksplisit: {_normalize_text(text)[:160]}",
+            confidence=0.95,
+        )
+        if result.get("ok"):
+            await update.message.reply_text("Memory tersimpan dan aktif. Memory was written.")
+        else:
+            await update.message.reply_text("Gagal menyimpan memory. No memory was written yet.")
+        return True
+
+    if any(x in lowered for x in ("apa yang kamu ingat", "apa yang kamu ingat soal", "memory relevan", "cara kerja saya", "apa memory yang relevan")):
+        topic = text
+        for prefix in ("apa yang kamu ingat soal", "apa yang kamu ingat", "apa memory yang relevan untuk codex sekarang"):
+            if lowered.startswith(prefix):
+                topic = text[len(prefix):].strip(" :")
+                break
+        topic = re.sub(r"[^a-zA-Z0-9\s]", " ", topic).strip()
+        payload = memory_relevant_get(query=topic, limit=5)
+        if not (payload.get("items") or []):
+            payload = memory_profile_get(limit=5)
+        items = payload.get("items") or []
+        if not items:
+            await update.message.reply_text("Belum ada memory aktif yang relevan. No memory was written yet.")
+            return True
+        lines = ["Memory relevan:"]
+        for idx, item in enumerate(items[:5], start=1):
+            lines.append(f"{idx}. [{item.get('type')}] {str(item.get('content') or '')[:180]}")
+        await update.message.reply_text("\n".join(lines)[:3900])
+        return True
+
+    if "ada memory baru yang perlu disimpan" in lowered:
+        payload = list_candidates(status="candidate", limit=5)
+        items = payload.get("items") or []
+        if not items:
+            await update.message.reply_text("Belum ada candidate memory baru. No memory was written yet.")
+            return True
+        lines = ["Ada candidate memory baru:"]
+        for idx, item in enumerate(items[:5], start=1):
+            lines.append(f"{idx}. [{item.get('type')}] {str(item.get('content') or '')[:140]}")
+        lines.append("Balas natural: 'simpan nomor 1' atau 'tolak memory itu'.")
+        await update.message.reply_text("\n".join(lines)[:3900])
+        return True
+
+    if "simpan nomor" in lowered:
+        match = re.search(r"simpan nomor\s+(\d+)", lowered)
+        if not match:
+            await update.message.reply_text("Nomor candidate belum jelas. No memory was written yet.")
+            return True
+        ordinal = int(match.group(1))
+        listed = list_candidates(status="candidate", limit=20).get("items") or []
+        if ordinal <= 0 or ordinal > len(listed):
+            await update.message.reply_text("Nomor candidate tidak ditemukan. No memory was written yet.")
+            return True
+        candidate_id = str(listed[ordinal - 1].get("candidate_id") or "")
+        result = transition_candidate(candidate_id, "approve")
+        if result.get("ok"):
+            await update.message.reply_text("Candidate disetujui dan memory ditulis. Memory was written.")
+        else:
+            await update.message.reply_text("Candidate belum bisa disimpan. No memory was written yet.")
+        return True
+
+    if "tolak memory itu" in lowered:
+        listed = list_candidates(status="candidate", limit=1).get("items") or []
+        if not listed:
+            await update.message.reply_text("Tidak ada candidate aktif untuk ditolak. No memory was written yet.")
+            return True
+        candidate_id = str(listed[0].get("candidate_id") or "")
+        result = transition_candidate(candidate_id, "reject")
+        if result.get("ok"):
+            await update.message.reply_text("Candidate memory ditolak. No memory was written yet.")
+        else:
+            await update.message.reply_text("Gagal menolak candidate memory. No memory was written yet.")
+        return True
+
+    if "memory paos saya sehat" in lowered:
+        payload = memory_health_get()
+        await update.message.reply_text(
+            (
+                f"{payload.get('summary')}\n"
+                f"Warnings: {', '.join(payload.get('warnings') or ['-'])}\n"
+                "No memory was written yet."
+            )[:3900]
+        )
+        return True
+
+    return False
 
 
 async def _handle_action_loop(update, text: str) -> bool:
@@ -306,6 +441,9 @@ async def handle_free_text_query(update, context):
         if await _handle_action_loop(update, text):
             return
     if await _handle_source_intelligence(update, text):
+        return
+    if await _handle_memory_intent(update, text):
+        _trace_route("free-text", text, "phase7_memory_intent")
         return
     if hermes_orchestration_enabled():
         _trace_route("free-text", text, "hermes_orchestration")

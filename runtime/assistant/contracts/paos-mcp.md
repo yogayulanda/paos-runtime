@@ -1,6 +1,6 @@
 # PAOS MCP Contract
 
-Purpose: define the Phase 3B/3C MCP bridge for cross-tool working memory and assistant context.
+Purpose: define the MCP bridge for PAOS memory/context/action intelligence surfaces.
 
 ## Architecture
 
@@ -61,6 +61,45 @@ Output:
 Behavior:
 
 - Mutates memory only through `MemoryProvider.write()`.
+- Safety-sensitive tool; not for normal Telegram/Hermes free-text path.
+
+## Tool: `paos_memory_approved_write`
+
+Input:
+
+- `content` (required)
+- `type` (optional; one of `preference|working_style|project_fact|decision|task_state|note`)
+- `source_type` (required)
+- `source_ref` (required)
+- `evidence_summary` (required, compact)
+- `confidence` (optional)
+
+Output:
+
+- `ok`
+- `result`
+- `merged`
+- `warnings`
+- `errors`
+
+Behavior:
+
+- Approval-safe write path for explicit user memory instruction.
+- Always runs dedupe/merge before durable write.
+- Requires source/provenance fields.
+
+## Tool: `paos_memory_candidate_create`
+## Tool: `paos_memory_candidate_list`
+## Tool: `paos_memory_candidate_transition`
+## Tool: `paos_memory_profile_get`
+## Tool: `paos_memory_relevant_get`
+## Tool: `paos_memory_health_get`
+
+Behavior:
+
+- Candidate and compact retrieval surfaces for Phase 7.
+- Candidate transitions support `approve` (promote/write) and `reject`.
+- No raw transcript dump by default.
 
 ## Tool: `paos_memory_recall`
 
@@ -206,6 +245,10 @@ Invariants:
 `read_only`
 - `paos_health`: runtime/provider diagnostics, no mutation.
 - `paos_memory_recall`: recall-only memory access.
+- `paos_memory_profile_get`: compact active memory profile.
+- `paos_memory_relevant_get`: compact relevant active memories.
+- `paos_memory_candidate_list`: list candidate/rejected/active candidate rows.
+- `paos_memory_health_get`: memory health diagnostics.
 - `paos_context_get`: bounded context read.
 - `paos_brief_get`: latest brief artifact read.
 - `paos_opportunities_get`: latest opportunities read.
@@ -232,6 +275,9 @@ Invariants:
 `local_state_write`
 - `paos_daily_action_generate`: creates local proposed action record only.
 - `paos_action_state_transition`: updates local action-loop state only.
+- `paos_memory_candidate_create`: creates local memory candidate draft.
+- `paos_memory_candidate_transition`: approves/rejects local memory candidate.
+- `paos_memory_approved_write`: approval-safe durable memory write.
 
 `forbidden_or_blocked` (for normal Telegram/Hermes flow)
 - `paos_memory_write`: safety-sensitive write; must not be invoked by normal free-text orchestration.

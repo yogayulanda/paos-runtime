@@ -2,6 +2,8 @@
 
 Purpose: define the assistant memory boundary for Phase 3C.
 
+Phase 7 adds a lightweight candidate + approval-safe write orchestration layer above this provider contract.
+
 ## Interface
 
 - `healthcheck()`
@@ -37,6 +39,9 @@ Purpose: define the assistant memory boundary for Phase 3C.
 - `recall()` returns the newest matching entries first.
 - Empty query text returns latest items.
 - `write()` appends JSONL records with `id`, `content`, `scope`, `created_at`, `source`, and `metadata`.
+- Durable memory metadata must stay compact and source-backed:
+  - `type`, `source_type`, `source_ref`, `evidence_summary`, `confidence`, `status`, `updated_at`, `topic_key`
+- Allowed durable statuses are: `candidate`, `active`, `rejected`, `superseded`.
 - Mnemosyne healthcheck is SDK-focused and may optionally run a strict lightweight remember/recall probe when enabled.
 - Mnemosyne `backup`/`verify` commands are operational tools and not used as provider health gates.
 

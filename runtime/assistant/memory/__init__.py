@@ -9,6 +9,15 @@ from .provider import (
     MemoryWrite,
     MemoryWriteResult,
 )
+from .service import (
+    create_candidate,
+    direct_approved_write,
+    list_candidates,
+    memory_health_get,
+    memory_profile_get,
+    memory_relevant_get,
+    transition_candidate,
+)
 
 __all__ = [
     "LocalMemoryProvider",
@@ -19,5 +28,12 @@ __all__ = [
     "MemoryWrite",
     "MemoryWriteResult",
     "MnemosyneMemoryProvider",
+    "create_candidate",
+    "list_candidates",
+    "transition_candidate",
+    "direct_approved_write",
+    "memory_profile_get",
+    "memory_relevant_get",
+    "memory_health_get",
     "load_memory_provider",
 ]

@@ -74,12 +74,16 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- paos_brief_get\n"
         "- paos_opportunities_get\n"
         "- paos_memory_recall\n"
+        "- paos_memory_profile_get\n"
+        "- paos_memory_relevant_get\n"
+        "- paos_memory_candidate_list\n"
+        "- paos_memory_health_get\n"
         "Treat these as preferred evidence sources for Telegram free-text.\n"
         "Known roadmap priority:\n"
         "- Completed: provider activation, Telegram Hermes-first orchestration,\n"
         "  prompt/policy tuning, Phase 3 read surfaces, Phase 4 draft boundary,\n"
         "  and Phase 5 persistent action loop.\n"
-        "- Current status: Phase 6 source intelligence expansion for better external signals.\n"
+        "- Current status: Phase 7 memory candidate + approval-safe write path active.\n"
         "- Main UX is conversational (e.g., 'pilih nomor 1', 'accept yang tadi').\n"
         "- Do not force slash commands for primary flow.\n"
         "- Do not recommend command-heavy flows as primary UX.\n"
@@ -89,11 +93,12 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "3) Alasan\n"
         "4) Validasi/aksi konkret berikutnya\n"
         "Avoid endings like 'Kalau mau...' or 'Aku bisa...'.\n"
-        "This flow is read-only:\n"
-        "- Do not call paos_memory_write.\n"
+        "This flow is approval-safe:\n"
+        "- Never call paos_memory_write directly for free-text writes.\n"
+        "- Use paos_memory_approved_write only for explicit user intent ('ingat/simpan/update memory') with source and dedupe checks.\n"
+        "- Inferred memory must use paos_memory_candidate_create and ask approval first.\n"
         "- Do not apply controlled writes.\n"
         "- Do not mutate scheduler, GitHub, or repository state.\n"
-        "- Do not call paos_memory_write.\n"
         "- Do not enable/start Hermes gateway.\n"
         "- Mutation-like requests must be converted into draft output with clear no-apply notice.\n"
         "- Approval-required requests must include approval payload only, no execution path.\n"
@@ -147,6 +152,12 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
     if has_any("draft", "rencana", "plan", "approval", "promosi memory"):
         picks.append(("paos_action_policy_get", {}))
         picks.append(("paos_action_draft_create", {"intent": normalized[:120]}))
+    if has_any("apa yang kamu ingat", "memory relevan", "cara kerja saya", "ingat soal"):
+        picks.append(("paos_memory_profile_get", {"limit": 8}))
+    if has_any("memory sehat", "memory paos saya sehat"):
+        picks.append(("paos_memory_health_get", {}))
+    if has_any("memory baru", "perlu disimpan", "candidate memory"):
+        picks.append(("paos_memory_candidate_list", {"status": "candidate", "limit": 5}))
     if has_any("buat action hari ini", "action pending", "accept yang tadi", "pilih nomor", "fokus saya sekarang"):
         picks.append(("paos_action_list", {"limit": 5}))
     if has_any("buat action hari ini", "daily action"):
@@ -207,6 +218,9 @@ def _prefetch_read_evidence(text: str) -> dict | None:
         "paos_action_draft_create": getattr(mcp_server, "tool_paos_action_draft_create", None),
         "paos_action_list": getattr(mcp_server, "tool_paos_action_list", None),
         "paos_daily_action_generate": getattr(mcp_server, "tool_paos_daily_action_generate", None),
+        "paos_memory_profile_get": getattr(mcp_server, "tool_paos_memory_profile_get", None),
+        "paos_memory_health_get": getattr(mcp_server, "tool_paos_memory_health_get", None),
+        "paos_memory_candidate_list": getattr(mcp_server, "tool_paos_memory_candidate_list", None),
     }
 
     compact_results = []
