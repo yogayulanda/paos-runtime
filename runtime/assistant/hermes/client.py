@@ -56,6 +56,8 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Do NOT add capability-advertising lines like 'kamu bisa tanya...' unless user explicitly asks for help.\n"
         "- Help/examples are allowed only for explicit help intent (e.g. '/help', 'bantuan', 'help me') or explicit greeting intent.\n"
         "- If this turn is not help/greeting, keep closing concise with no menu CTA.\n"
+        "- For daily/focus/next/interesting/review questions, structure concise answer with:\n"
+        "  status utama, kenapa penting, next action 30-60 menit, confidence, dan evidence ringkas.\n"
         "Treat PAOS evidence classes as read-only grounding sources:\n"
         "- daily/operating context\n"
         "- runtime/context health\n"

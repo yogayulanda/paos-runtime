@@ -48,12 +48,7 @@ def _resolve_handoff_target(text: str) -> str:
 
 
 def _render_unknown_message() -> str:
-    return (
-        "Saya belum paham maksudnya.\n"
-        "Coba contoh: 'apa status PAOS hari ini?', 'apa fokus saya sekarang?', "
-        "'buat daily plan', 'source intelligence sehat gak?', "
-        "'buat handoff Codex dari fokus sekarang', atau 'review hasil Codex ini: ...'."
-    )
+    return "Saya belum kebaca jelas. Coba tulis tujuanmu dalam 1 kalimat biar saya kasih next action paling tepat."
 
 
 def _is_greeting_only_text(text: str) -> bool:
@@ -68,7 +63,6 @@ def _is_greeting_only_text(text: str) -> bool:
         "hai",
         "hi",
         "yo",
-        "pagi",
         "siang",
         "sore",
         "malam",
@@ -80,17 +74,36 @@ def _is_greeting_only_text(text: str) -> bool:
 
 
 def _render_greeting_message() -> str:
-    return (
-        "Halo! PAOS siap. Kamu bisa tanya: apa status PAOS hari ini?, "
-        "apa fokus saya sekarang?, buat daily plan, cek context saya sehat gak?, "
-        "buat handoff Codex dari fokus sekarang."
-    )
+    return "Halo, saya siap bantu. Mulai dari prioritasmu sekarang, nanti saya bantu pecah jadi next action yang jelas."
 
 
 def _normalize_text(text: str) -> str:
     lowered = str(text or "").strip().lower()
     lowered = re.sub(r"\s+", " ", lowered)
     return lowered
+
+def _compact_confidence(label: str, reason: str) -> str:
+    return f"{label} ({reason[:120]})" if reason else label
+
+def _render_product_value_block(
+    *,
+    title: str,
+    status_signal: str,
+    why_it_matters: str,
+    best_next_action: str,
+    confidence: str,
+    evidence: str,
+) -> str:
+    lines = [
+        f"{title}",
+        f"- Status utama: {status_signal}",
+        f"- Kenapa ini penting: {why_it_matters}",
+        f"- Next action (30-60 menit): {best_next_action}",
+        f"- Confidence: {confidence}",
+        f"- Evidence ringkas: {evidence}",
+        "No external action was applied.",
+    ]
+    return "\n".join(lines)[:3900]
 
 
 def _is_action_loop_text(text: str) -> bool:
@@ -106,8 +119,6 @@ def _is_action_loop_text(text: str) -> bool:
         r"\bapa action pending saya\b",
         r"\bapa action pending saya\b",
         r"\blist action\b",
-        r"\bapa fokus saya sekarang\b",
-        r"\bapa yang harus saya kerjakan sekarang\b",
         r"\bpilih nomor \d+\b",
         r"\bnomor \d+\b",
         r"\blihat detail\b",
@@ -197,6 +208,7 @@ def _is_blocked_unsafe_operation_request(text: str) -> bool:
 def _is_daily_operating_text(text: str) -> bool:
     lowered = _normalize_text(text)
     phrases = (
+        "pagi",
         "pagi, hari ini fokus apa",
         "pagi hari ini fokus apa",
         "hari ini fokus apa",
@@ -338,25 +350,33 @@ async def _handle_agent_orchestration(update, text: str) -> bool:
         blockers = review.get("blockers") or []
         safety = review.get("safety_violations") or []
         files = review.get("files_changed") or []
+        goal_met = bool(review.get("goal_met"))
+        commit_ready = bool(review.get("commit_readiness"))
+        has_safety_violation = len(safety) > 0
+        has_blocker = len(blockers) > 0
+        if has_safety_violation:
+            result_status = "unsafe"
+        elif has_blocker:
+            result_status = "needs_follow_up"
+        elif goal_met and commit_ready:
+            result_status = "accepted"
+        else:
+            result_status = "incomplete"
+        impact_to_goal = "Mendorong goal utama karena patch mengurangi gap readiness." if goal_met else "Belum menutup goal utama, masih perlu perbaikan sebelum lanjut."
+        decision_recommendation = "Lanjutkan ke verifikasi final + apply lokal terbatas." if result_status == "accepted" else "Tahan apply, selesaikan blocker/risiko dulu."
+        top_risk = str((safety[0] if safety else (blockers[0] if blockers else "tidak ada risiko kritis terdeteksi")))[:180]
         lines = [
             "Review hasil agent:",
-            f"- goal_met: {review.get('goal_met')}",
-            f"- commit_readiness: {review.get('commit_readiness')}",
-            f"- files_detected: {len(files)}",
-            f"- validation_failed_signal: {review.get('validation_failed_signal')}",
-            f"- missing_tests: {review.get('missing_tests')}",
+            f"- Hasil status: {result_status}",
+            f"- Impact ke goal: {impact_to_goal}",
+            f"- Decision recommendation: {decision_recommendation}",
+            f"- Risk/Blocker utama: {top_risk}",
+            f"- Next action (30-60 menit): {review.get('next_safe_step')}",
+            f"- Confidence: {_compact_confidence('sedang', 'berdasarkan sinyal goal_met, readiness, blocker, dan safety')}",
+            f"- Evidence ringkas: files={len(files)}, validation_failed={review.get('validation_failed_signal')}, missing_tests={review.get('missing_tests')}",
+            "No external action was applied.",
+            "Tidak ada commit/push dan tidak ada GitHub mutation.",
         ]
-        if blockers:
-            lines.append("- blocker: " + str(blockers[0]))
-        if safety:
-            lines.append("- safety_violation: " + str(safety[0]))
-        lines.extend(
-            [
-                f"- next_safe_step: {review.get('next_safe_step')}",
-                "No external action was applied.",
-                "Tidak ada commit/push dan tidak ada GitHub mutation.",
-            ]
-        )
         await update.message.reply_text("\n".join(lines)[:3900])
         return True
 
@@ -393,25 +413,22 @@ async def _handle_daily_operating(update, text: str) -> bool:
             ][:3]
 
             interesting = source.get("items") or []
-            lines = ["Review minggu ini:"]
-            lines.append(f"- Fokus aktif: {focus_section.get('current_focus') or (accepted[0].title if accepted else 'Belum ada accepted focus')}")
-            lines.append(f"- Pending fokus: {len(pending)} action")
-            if pending:
-                lines.append(f"- Pending teratas: {pending[0].title}")
-            if interesting:
-                lines.append(f"- Signal menarik: {str(interesting[0].get('title') or '-')[:180]}")
-            else:
-                lines.append(f"- Signal menarik: {source_section.get('latest_insight_summary') or '-'}")
-            if memory_candidates:
-                lines.append(f"- Memory candidate highlight: {str(memory_candidates[0].get('content') or '-')[:160]}")
-            else:
-                lines.append("- Memory candidate highlight: belum ada candidate baru")
-            lines.append(
-                "- Rekomendasi fokus minggu depan: "
-                + str((summary.get("sections") or {}).get("recommended_next_safe_step") or "Tutup 1 pending action prioritas tinggi terlebih dulu.")
+            focus = focus_section.get('current_focus') or (accepted[0].title if accepted else 'Belum ada accepted focus')
+            signal = str(interesting[0].get('title') or '-')[:180] if interesting else str(source_section.get('latest_insight_summary') or '-')
+            tradeoff = (
+                f"Ada {len(pending)} pending action; fokus ke 1 prioritas akan menunda item lain tapi mempercepat hasil utama."
             )
-            lines.append("No external action was applied.")
-            await update.message.reply_text("\n".join(lines)[:3900])
+            evidence = f"focus={focus}; pending={len(pending)}; signal={signal[:90]}"
+            await update.message.reply_text(
+                _render_product_value_block(
+                    title="Review minggu ini:",
+                    status_signal=f"Fokus aktif: {focus}. Signal terbaru: {signal}",
+                    why_it_matters=tradeoff,
+                    best_next_action=str((summary.get("sections") or {}).get("recommended_next_safe_step") or "Tutup 1 pending action prioritas tinggi terlebih dulu."),
+                    confidence=_compact_confidence("sedang", "berdasarkan focus aktif, pending queue, dan signal intelligence"),
+                    evidence=evidence,
+                )
+            )
             return True
 
         if "daily plan" in lowered or "rencana harian" in lowered:
@@ -422,12 +439,20 @@ async def _handle_daily_operating(update, text: str) -> bool:
             sections = payload.get("sections") or {}
             plan = sections.get("daily_plan") or []
             next_step = str(sections.get("recommended_next_safe_step") or "Review pending action paling atas.")
-            lines = ["Daily plan hari ini:"]
-            for idx, item in enumerate(plan[:4], start=1):
-                lines.append(f"{idx}. {str(item)}")
-            lines.append(f"Next safe step: {next_step}")
-            lines.append("No external action was applied.")
-            await update.message.reply_text("\n".join(lines)[:3900])
+            top_items = [str(x) for x in plan[:3]]
+            priority = top_items[0] if top_items else "Belum ada prioritas yang cukup jelas"
+            tradeoff = "Menuntaskan prioritas #1 akan mengurangi bandwidth untuk item lain, tapi memberi progress paling terlihat hari ini."
+            evidence = f"plan_items={len(plan)}; top_priority={priority[:80]}"
+            await update.message.reply_text(
+                _render_product_value_block(
+                    title="Daily plan hari ini:",
+                    status_signal=f"Prioritas utama: {priority}",
+                    why_it_matters=tradeoff,
+                    best_next_action=next_step,
+                    confidence=_compact_confidence("sedang", "berdasarkan daily plan dan urutan prioritas saat ini"),
+                    evidence=evidence,
+                )
+            )
             return True
 
         if _has_any_phrase(lowered, ("apa yang menarik hari ini", "yang menarik hari ini", "interesting today", "insight terbaru apa", "insight terbaru", "ada opportunity apa", "opportunity apa")):
@@ -438,8 +463,18 @@ async def _handle_daily_operating(update, text: str) -> bool:
                 return True
             lines = ["Yang menarik hari ini:"]
             for idx, item in enumerate(items[:3], start=1):
-                lines.append(f"{idx}. {str(item.get('title') or '-')[:160]}")
-                lines.append(f"   kenapa penting: {str(item.get('reason') or '-')[:140]}")
+                title = str(item.get('title') or '-')[:130]
+                reason = str(item.get('reason') or '-')[:120]
+                leverage = str(item.get('opportunity') or item.get('leverage') or 'potensi leverage ada jika dieksekusi cepat')[:110]
+                decision = str(item.get('decision_recommendation') or item.get('next_action') or 'pilih satu eksperimen kecil dan validasi hasilnya hari ini')[:120]
+                confidence = str(item.get('confidence') or 'sedang')[:80]
+                source = str(item.get('source_ref') or item.get('source') or '-')[:90]
+                lines.append(f"{idx}. {title}")
+                lines.append(f"   kenapa ini penting: {reason}")
+                lines.append(f"   leverage: {leverage}")
+                lines.append(f"   rekomendasi keputusan: {decision}")
+                lines.append(f"   confidence/reason: {confidence}")
+                lines.append(f"   evidence sumber: {source}")
             lines.append("No external action was applied.")
             await update.message.reply_text("\n".join(lines)[:3900])
             return True
@@ -464,14 +499,16 @@ async def _handle_daily_operating(update, text: str) -> bool:
             sections = payload.get("sections") or {}
             recommended = str(sections.get("recommended_next_safe_step") or "Review pending action paling atas.")
             focus = (sections.get("focus") or {}).get("current_focus") or "Belum ada fokus aktif"
-            lines = [
-                "Next terbaik sekarang:",
-                f"- Fokus saat ini: {focus}",
-                f"- Rekomendasi: {recommended}",
-                "- Status: rekomendasi ini belum dieksekusi.",
-                "No external action was applied.",
-            ]
-            await update.message.reply_text("\n".join(lines)[:3900])
+            await update.message.reply_text(
+                _render_product_value_block(
+                    title="Next terbaik sekarang:",
+                    status_signal=f"Fokus saat ini: {focus}",
+                    why_it_matters="Memilih satu next action sekarang menurunkan context switching dan mempercepat output nyata.",
+                    best_next_action=recommended,
+                    confidence=_compact_confidence("tinggi", "rekomendasi berasal dari operating summary terbaru"),
+                    evidence=f"focus={focus[:80]}; recommendation={recommended[:80]}",
+                )
+            )
             return True
 
         if _has_any_phrase(lowered, ("review action saya", "review action", "ulasan action saya")):
@@ -480,14 +517,18 @@ async def _handle_daily_operating(update, text: str) -> bool:
                 a for a in action_loop_list_actions(limit=20, remember_list=False)
                 if a.state in {"proposed", "deferred"}
             ][:3]
-            lines = ["Review action saat ini:"]
-            lines.append(f"- Focus terpilih: {accepted[0].title if accepted else 'Belum ada accepted focus'}")
-            lines.append(f"- Pending action: {len(pending)}")
-            if pending:
-                lines.append(f"- Priority pending: {pending[0].title}")
-            lines.append("- Catatan: accepted = focus terpilih, bukan eksekusi.")
-            lines.append("No external action was applied.")
-            await update.message.reply_text("\n".join(lines)[:3900])
+            focus_title = accepted[0].title if accepted else "Belum ada accepted focus"
+            pending_top = pending[0].title if pending else "-"
+            await update.message.reply_text(
+                _render_product_value_block(
+                    title="Review action saat ini:",
+                    status_signal=f"Focus terpilih: {focus_title}; pending: {len(pending)}",
+                    why_it_matters="Jika pending terlalu banyak, fokus terpecah dan delivery melambat.",
+                    best_next_action=f"Eksekusi 30-60 menit pada '{pending_top if pending else focus_title}' lalu update status.",
+                    confidence=_compact_confidence("sedang", "berdasarkan state accepted/proposed/deferred saat ini"),
+                    evidence=f"accepted={bool(accepted)}; pending_count={len(pending)}; top_pending={pending_top[:80]}",
+                )
+            )
             return True
 
         payload = mcp_server.tool_paos_operating_summary_get(category="ai")
@@ -500,16 +541,16 @@ async def _handle_daily_operating(update, text: str) -> bool:
         source_summary = (sections.get("source_intelligence") or {}).get("latest_insight_summary") or "-"
         memory_summary = (sections.get("memory_health") or {}).get("summary") or "-"
         next_step = sections.get("recommended_next_safe_step") or "Review action pending paling atas."
-        lines = [
-            "Status PAOS hari ini:",
-            f"- Fokus: {focus}",
-            f"- Pending action: {pending}",
-            f"- Source insight: {source_summary}",
-            f"- Memory health: {memory_summary}",
-            f"- Next safe step: {next_step}",
-            "No external action was applied.",
-        ]
-        await update.message.reply_text("\n".join(lines)[:3900])
+        await update.message.reply_text(
+            _render_product_value_block(
+                title="Status PAOS hari ini:",
+                status_signal=f"Fokus: {focus}; pending action: {pending}; signal: {source_summary}",
+                why_it_matters="Status ini menunjukkan apakah kamu perlu lanjut eksekusi fokus atau rapikan konteks dulu.",
+                best_next_action=str(next_step),
+                confidence=_compact_confidence("sedang", "berdasarkan operating summary, source insight, dan memory health"),
+                evidence=f"focus={focus[:60]}; pending={pending}; memory={memory_summary[:70]}",
+            )
+        )
         return True
     except Exception:
         return False
@@ -634,15 +675,18 @@ async def _handle_memory_intent(update, text: str) -> bool:
         pending = ctx.get("pending_focus") or []
         decisions = ctx.get("recent_decisions") or []
         handoff = ctx.get("active_handoff") or {}
-        lines = ["Working context saat ini:"]
-        lines.append(f"- Focus: {focus}")
-        lines.append(f"- Pending: {len(pending)}")
-        if decisions:
-            lines.append(f"- Keputusan terbaru: {str(decisions[0].get('content') or '-')[:140]}")
-        if handoff.get("handoff_id"):
-            lines.append(f"- Active handoff: {handoff.get('handoff_id')} ({handoff.get('target_agent')})")
-        lines.append("No external action was applied.")
-        await update.message.reply_text("\n".join(lines)[:3900])
+        latest_decision = str(decisions[0].get('content') or '-')[:120] if decisions else "belum ada keputusan terbaru"
+        active_handoff = f"{handoff.get('handoff_id')} ({handoff.get('target_agent')})" if handoff.get("handoff_id") else "tidak ada"
+        await update.message.reply_text(
+            _render_product_value_block(
+                title="Working context saat ini:",
+                status_signal=f"Focus: {focus}; pending: {len(pending)}; handoff aktif: {active_handoff}",
+                why_it_matters="Context yang jelas mengurangi salah prioritas dan mempercepat keputusan eksekusi.",
+                best_next_action=f"Pilih satu fokus utama dan jalankan 30-60 menit, mulai dari: {focus}",
+                confidence=_compact_confidence("sedang", "berdasarkan focus aktif, pending queue, dan keputusan terbaru"),
+                evidence=f"decision={latest_decision}; pending={len(pending)}; handoff={active_handoff[:70]}",
+            )
+        )
         return True
 
     if "ada memory baru yang perlu disimpan" in lowered:

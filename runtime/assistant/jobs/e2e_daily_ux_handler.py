@@ -50,22 +50,30 @@ def _assert_common_contract(response: str, trace: str) -> None:
     _assert("tool_" not in response.lower(), "internal tool leakage")
     _assert("/" not in response[:20], "looks like slash-command style output")
 
+def _assert_quality_contract(response: str) -> None:
+    lowered = response.lower()
+    _assert("kenapa ini penting" in lowered or "kenapa penting" in lowered, "missing why/importance block")
+    _assert("next action" in lowered or "rekomendasi keputusan" in lowered or "next safe step" in lowered, "missing next-action/decision block")
+    _assert("confidence" in lowered, "missing confidence block")
+    _assert("evidence" in lowered, "missing evidence block")
+
 
 async def _run() -> None:
     checks = [
-        ("pagi, hari ini fokus apa?", ("status paos hari ini", "fokus", "next safe step")),
+        ("pagi, hari ini fokus apa?", ("status paos hari ini", "fokus", "next action")),
         ("apa status PAOS hari ini?", ("status paos hari ini", "fokus", "pending action")),
-        ("buat daily plan", ("daily plan hari ini", "next safe step")),
+        ("buat daily plan", ("daily plan hari ini", "prioritas utama")),
         ("apa yang menarik hari ini?", ("yang menarik hari ini",)),
         ("apa next terbaik sekarang?", ("next terbaik sekarang", "rekomendasi")),
-        ("review action saya", ("review action saat ini", "accepted = focus")),
-        ("review minggu ini", ("review minggu ini", "rekomendasi fokus minggu depan")),
+        ("review action saya", ("review action saat ini", "focus terpilih")),
+        ("review minggu ini", ("review minggu ini", "kenapa ini penting")),
     ]
 
     for idx, (msg, required_tokens) in enumerate(checks, start=1):
         response, trace = await _ask(msg)
         where = (response + "\n" + trace).lower()
         _assert_common_contract(response, trace)
+        _assert_quality_contract(response)
         _assert(
             "route=hermes_unavailable:orchestration_disabled" in where
             or "route=hermes_fallback_after_empty_or_error" in where,

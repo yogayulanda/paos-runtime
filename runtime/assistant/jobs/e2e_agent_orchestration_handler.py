@@ -122,7 +122,7 @@ def _assert_agent_review_contract(response: str, trace: str) -> None:
     _assert_no_internal_tool_leak(response)
     _assert_review_safe_semantics(response)
     _assert_no_unsafe_execution_implication(response)
-    _assert(any(x in where for x in ("review", "commit_readiness", "next_safe_step", "goal_met")), "review signal missing")
+    _assert(any(x in where for x in ("review", "impact ke goal", "decision recommendation", "next action")), "review signal missing")
 
 
 def _assert_next_action_contract(response: str, trace: str) -> None:
