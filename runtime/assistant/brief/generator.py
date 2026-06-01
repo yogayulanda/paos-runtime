@@ -174,11 +174,15 @@ def build_assistant_brief(category: str) -> AssistantBriefBuildResult:
     if not focus_today:
         focus_today = "Rebuild assistant context baseline and resolve missing intelligence artifacts."
 
-    suggested_next_action = (
-        "Run assistant diagnostics, then execute the top Build opportunity and regenerate the brief."
-    )
+    suggested_next_action = "Cek operating summary terbaru lalu pilih satu langkah kecil yang sudah tervalidasi."
     if errors:
         suggested_next_action = "Restore at least one assistant source artifact, then rerun assistant brief generation."
+    elif runtime_risks:
+        suggested_next_action = "Perbaiki source atau artifact yang gagal dulu, lalu bangun ulang brief setelah statusnya sehat."
+    elif artifact_risks or memory_risks or warnings:
+        suggested_next_action = "Review freshness context dan artifact utama, lalu pilih satu perbaikan kecil yang paling jelas dampaknya."
+    elif artifact_build_ops or runtime_build_ops:
+        suggested_next_action = "Review opportunity atau focus yang paling current, lalu pilih satu aksi kecil untuk dieksekusi."
 
     payload = {
         "date": generated_at[:10],

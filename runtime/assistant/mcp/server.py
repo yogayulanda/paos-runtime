@@ -15,6 +15,7 @@ from assistant.opportunities import resolve_latest_assistant_opportunities
 from assistant.memory import (
     MemoryQuery,
     MemoryWrite,
+    build_personal_context_pack,
     create_candidate,
     direct_approved_write,
     list_candidates,
@@ -121,6 +122,29 @@ def _age_days(value: Any) -> int | None:
     if not parsed:
         return None
     return max(0, int((datetime.now(timezone.utc) - parsed).total_seconds() // 86400))
+
+def _is_stale_daily_string(value: Any) -> bool:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return False
+    stale_markers = (
+        "paos v3 setup selesai",
+        "setup selesai",
+        "fully operational",
+        "auto-sync",
+        "daily action draft",
+        "draft aksi harian",
+        "build opportunity",
+        "regenerate brief",
+        "use latest digest",
+        "latest digest",
+        "execute today focus",
+        "validate current implementation against latest insight assumptions",
+        "latest digest as execution anchor",
+        "runtime pipeline looks healthy",
+        "apply one concrete task from the latest digest",
+    )
+    return any(marker in lowered for marker in stale_markers)
 
 
 def _read_json_file(path: Path) -> dict[str, Any] | None:
@@ -751,32 +775,47 @@ def tool_paos_daily_get(category: str | None = None) -> dict[str, Any]:
         opportunities_payload = (
             _read_json_file(Path(artifacts["opportunities"]["path"])) if artifacts["opportunities"]["path"] else {}
         )
+        operating = tool_paos_operating_summary_get(category=resolved_category)
+        context_pack = build_personal_context_pack("daily focus summary", relevant_limit=3)
 
         priorities: list[str] = []
         next_action = ""
         if isinstance(brief_payload, dict):
             focus = str(brief_payload.get("focus_today") or "").strip()
-            if focus:
+            if focus and not _is_stale_daily_string(focus):
                 priorities.append(focus)
             next_action = str(brief_payload.get("suggested_next_action") or "").strip()
+            if _is_stale_daily_string(next_action):
+                next_action = ""
 
         if isinstance(opportunities_payload, dict):
             for item in opportunities_payload.get("opportunities") or []:
                 if not isinstance(item, dict):
                     continue
                 title = str(item.get("title") or "").strip()
-                if title and title not in priorities:
+                if title and not _is_stale_daily_string(title) and title not in priorities:
                     priorities.append(title)
                 if len(priorities) >= 3:
                     break
                 candidate_next = str(item.get("next_action") or "").strip()
-                if not next_action and candidate_next:
+                if not next_action and candidate_next and not _is_stale_daily_string(candidate_next):
                     next_action = candidate_next
 
+        operating_focus = str((((operating.get("sections") or {}).get("focus") or {}).get("current_focus") or "")).strip()
+        context_focus = str(context_pack.get("current_focus_summary") or "").strip()
+        if operating_focus and not _is_stale_daily_string(operating_focus) and operating_focus not in priorities:
+            priorities.insert(0, operating_focus)
+        elif context_focus and not _is_stale_daily_string(context_focus) and context_focus not in priorities:
+            priorities.insert(0, context_focus)
+
+        operating_next = str(((operating.get("sections") or {}).get("recommended_next_safe_step") or "")).strip()
+        if not next_action and operating_next and not _is_stale_daily_string(operating_next):
+            next_action = operating_next
+
         if not priorities:
-            priorities = ["Belum ada prioritas; generate brief dan opportunities."]
+            priorities = ["Belum ada prioritas yang benar-benar segar; cek operating summary terbaru lalu pilih satu aksi kecil."]
         if not next_action:
-            next_action = "Mulai dari prioritas nomor 1."
+            next_action = "Cek operating summary terbaru lalu pilih satu next action kecil yang paling aman divalidasi."
 
         summary = (
             f"Daily PAOS: {len(priorities[:3])} prioritas aktif; "
@@ -1190,6 +1229,7 @@ def tool_paos_operating_summary_get(category: str | None = None) -> dict[str, An
         source = tool_paos_source_status_get()
         memory = tool_paos_memory_health_get()
         actions = tool_paos_action_list(limit=40)
+        context_pack = build_personal_context_pack("pagi fokus sekarang", relevant_limit=3)
 
         accepted = [a for a in (actions.get("sections", {}).get("actions") or []) if a.get("state") == "accepted"]
         proposed = [a for a in (actions.get("sections", {}).get("actions") or []) if a.get("state") == "proposed"]
@@ -1197,7 +1237,25 @@ def tool_paos_operating_summary_get(category: str | None = None) -> dict[str, An
 
         current_focus = (accepted[0] if accepted else (proposed[0] if proposed else None)) or {}
         current_focus_title = str(current_focus.get("title") or "Belum ada accepted action")
+        stale_focus_markers = (
+            "phase 9",
+            "runtime-stable external agent orchestration",
+            "daily action draft",
+            "draft aksi harian",
+            "build opportunity",
+            "regenerate brief",
+        )
+        current_focus_stale = any(marker in current_focus_title.lower() for marker in stale_focus_markers)
         focus_state = str(current_focus.get("state") or "none")
+        context_focus_summary = str(context_pack.get("current_focus_summary") or "").strip()
+        background_summary = str(context_pack.get("background_summary") or "").strip()
+        if current_focus_stale or not current_focus.get("title"):
+            if context_focus_summary:
+                current_focus_title = context_focus_summary
+            else:
+                current_focus_title = "Belum ada fokus aktif yang cukup segar; perlu cross-check summary terbaru."
+            if current_focus_stale:
+                focus_state = "background"
 
         latest_insight = "Belum ada insight terbaru."
         insight_payload = tool_paos_source_insight_get(category=resolved_category, limit=1)
@@ -1231,6 +1289,9 @@ def tool_paos_operating_summary_get(category: str | None = None) -> dict[str, An
             stale_signals.append(f"Ada deferred action lama (~{oldest_deferred_days} hari).")
         if source_candidate_count == 0:
             stale_signals.append("Candidate source kosong; cek collector/candidate pool.")
+        if current_focus_stale:
+            stale_signals.append("Current focus yang terpilih masih terlalu generik; cross-check dengan current-state atau evidence terbaru.")
+        stale_signals.extend([str(x) for x in context_pack.get("stale_or_background_warnings") or []][:3])
         if memory_candidate_count >= 5:
             stale_signals.append(f"Candidate memory pending {memory_candidate_count}; review approval/reject.")
         if gateway_running:
@@ -1250,15 +1311,15 @@ def tool_paos_operating_summary_get(category: str | None = None) -> dict[str, An
         if memory.get("errors"):
             errors.extend([str(x) for x in memory.get("errors") or []][:4])
 
-        recommended_next_step = "Review 1 pending action lalu tetapkan accepted action untuk fokus hari ini."
+        recommended_next_step = "Cross-check focus aktif dengan current-state dan evidence terbaru, lalu pilih satu langkah yang paling aman untuk divalidasi."
         if gateway_running:
             recommended_next_step = "Pastikan Hermes gateway tetap stopped, lalu cek runtime status ulang."
         elif source_candidate_count == 0:
             recommended_next_step = "Jalankan ulang collector + candidate pool agar insight/source tidak kosong."
-        elif memory_candidate_count >= 5:
-            recommended_next_step = "Review candidate memory tertua dulu agar memory tetap bersih dan aktif."
         elif focus_state != "accepted":
-            recommended_next_step = "Pilih satu proposed action menjadi accepted agar fokus harian jelas."
+            recommended_next_step = "Tetapkan satu accepted action yang paling segar agar fokus harian tidak melebar."
+        elif context_focus_summary and focus_state == "background":
+            recommended_next_step = "Fokus action saat ini masih terlalu generik; cek operating summary terbaru lalu pilih satu next action kecil yang tervalidasi."
 
         summary = (
             f"PAOS hari ini: runtime={runtime.get('status', 'unknown')}, gateway={((runtime.get('sections') or {}).get('hermes_gateway_status') or 'unknown')}, "
@@ -1287,6 +1348,7 @@ def tool_paos_operating_summary_get(category: str | None = None) -> dict[str, An
                 "focus": {
                     "current_focus": current_focus_title,
                     "focus_state": focus_state,
+                    "background_summary": background_summary,
                     "latest_accepted_action": accepted[0] if accepted else None,
                     "pending_action_count": len(proposed) + len(deferred),
                 },

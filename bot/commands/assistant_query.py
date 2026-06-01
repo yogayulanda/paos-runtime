@@ -47,34 +47,8 @@ def _resolve_handoff_target(text: str) -> str:
     return "generic"
 
 
-def _render_unknown_message() -> str:
-    return "Saya belum kebaca jelas. Coba tulis tujuanmu dalam 1 kalimat biar saya kasih next action paling tepat."
-
-
-def _is_greeting_only_text(text: str) -> bool:
-    lowered = _normalize_text(text)
-    if not lowered:
-        return False
-    cleaned = re.sub(r"[^a-z\s]", " ", lowered)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    greetings = {
-        "halo",
-        "hallo",
-        "hai",
-        "hi",
-        "yo",
-        "siang",
-        "sore",
-        "malam",
-        "halo paos",
-        "hai paos",
-        "hi paos",
-    }
-    return cleaned in greetings
-
-
-def _render_greeting_message() -> str:
-    return "Halo, saya siap bantu. Mulai dari prioritasmu sekarang, nanti saya bantu pecah jadi next action yang jelas."
+def _render_hermes_unavailable_message() -> str:
+    return "Maaf, reasoning utama belum berhasil jawab barusan. Coba ulang sebentar lagi."
 
 
 def _normalize_text(text: str) -> str:
@@ -184,62 +158,74 @@ def _is_forbidden_gateway_request(text: str) -> bool:
     )
 
 
-def _is_blocked_unsafe_operation_request(text: str) -> bool:
+_GITHUB_INFO_MARKERS = (
+    "github copilot",
+    "training",
+    "traning",
+    "materi",
+    "belajar",
+    "tutorial",
+    "roadmap",
+    "best practice",
+    "cara pakai",
+    "contoh penggunaan",
+    "agenda training",
+    "outline training",
+    "jelaskan",
+)
+_MUTATION_VERBS = (
+    "buat",
+    "bikin",
+    "create",
+    "push",
+    "commit",
+    "merge",
+    "update",
+    "ubah",
+    "edit",
+    "apply",
+    "jalankan",
+    "nyalakan",
+    "hidupkan",
+    "start",
+    "open",
+    "aktifkan",
+    "enable",
+)
+
+def _match_unsafe_operation_type(text: str) -> str | None:
     lowered = _normalize_text(text)
-    markers = (
-        "github",
-        "commit",
-        "push",
-        "merge",
-        "pull request",
-        "systemd",
-        "systemctl",
-        "cron",
-        "scheduler",
-        "arbitrary shell",
-        "jalankan shell",
-        "run shell",
-        "public api",
-        "tunnel",
-        "start hermes gateway",
+    if not lowered:
+        return None
+
+    if any(marker in lowered for marker in _GITHUB_INFO_MARKERS):
+        github_write_pattern = re.compile(
+            r"\b(?:buat|bikin|create|push|commit|merge|update|ubah|edit|apply)\b.{0,40}\b(?:pr|pull request|issue|repo|repository|github)\b"
+            r"|\b(?:pr|pull request|issue|repo|repository|github)\b.{0,40}\b(?:buat|bikin|create|push|commit|merge|update|ubah|edit|apply)\b"
+        )
+        if not github_write_pattern.search(lowered):
+            return None
+
+    mutation_patterns: tuple[tuple[str, str], ...] = (
+        (r"\b(?:buat|bikin|create)\b.{0,40}\b(?:pr|pull request)\b|\b(?:pr|pull request)\b.{0,24}\b(?:di|ke)?\s*github\b", "github_pr_create"),
+        (r"\bpush\b.{0,24}\bcommit\b.{0,24}\bgithub\b|\bcommit\b.{0,24}\bpush\b.{0,24}\bgithub\b|\bpush\b.{0,24}\bgithub\b", "github_push_commit"),
+        (r"\bmerge\b.{0,24}\b(?:pr|pull request)\b|\bmerge\b.{0,24}\bgithub\b", "github_pr_merge"),
+        (r"\b(?:update|ubah|edit)\b.{0,40}\bissue\b.{0,24}\bgithub\b|\bissue\b.{0,24}\bgithub\b.{0,24}\b(?:update|ubah|edit)\b", "github_issue_update"),
+        (r"\b(?:apply|terapkan)\b.{0,40}\b(?:perubahan|change)\b.{0,40}\b(?:repo|repository|github)\b", "repo_apply_change"),
+        (r"\b(?:edit|ubah|write)\b.{0,32}\b(?:repo|repository)\b", "repo_write"),
+        (r"\b(?:nyalakan|hidupkan|enable|start)\b.{0,32}\bhermes gateway\b|\bhermes gateway\b.{0,24}\b(?:nyalakan|hidupkan|enable|start)\b", "gateway_start"),
+        (r"\b(?:buat|bikin|create|edit|ubah|update)\b.{0,32}\bcron(?:\s+job)?\b|\bcrontab\b", "scheduler_cron_update"),
+        (r"\b(?:edit|ubah|update|buat|bikin|create|enable|start)\b.{0,32}\b(?:systemd|systemctl|scheduler)\b", "systemd_unit_mutation"),
+        (r"\b(?:open|buat|bikin|create|start|aktifkan|enable)\b.{0,40}\b(?:public api|tunnel)\b|\b(?:public api|tunnel)\b.{0,24}\b(?:open|buat|bikin|create|start|aktifkan|enable)\b", "public_api_publish"),
+        (r"\b(?:jalankan|run)\b.{0,24}\bshell\b|\barbitrary shell\b", "arbitrary_shell"),
     )
-    return any(x in lowered for x in markers)
+    for pattern, operation in mutation_patterns:
+        if re.search(pattern, lowered):
+            return operation
 
-def _is_daily_operating_text(text: str) -> bool:
-    lowered = _normalize_text(text)
-    phrases = (
-        "pagi",
-        "pagi, hari ini fokus apa",
-        "pagi hari ini fokus apa",
-        "hari ini fokus apa",
-        "apa status paos hari ini",
-        "status paos hari ini",
-        "daily operating summary",
-        "operating summary",
-        "apa next terbaik sekarang",
-        "next terbaik sekarang",
-        "apa next step saya sekarang",
-        "apa yang perlu saya lakukan selanjutnya",
-        "apa yang menarik hari ini",
-        "review action saya",
-        "buat daily plan dari context memory source",
-        "buat daily plan",
-    )
-    return any(p in lowered for p in phrases)
-
-
-def _is_weekly_review_text(text: str) -> bool:
-    lowered = _normalize_text(text)
-    return _has_any_phrase(
-        lowered,
-        (
-            "review minggu ini",
-            "weekly review",
-            "ringkas minggu ini",
-            "minggu ini gimana",
-        ),
-    )
-
+    if "github" in lowered and any(verb in lowered for verb in _MUTATION_VERBS):
+        return "github_mutation"
+    return None
 
 def _is_agent_orchestration_text(text: str) -> bool:
     lowered = _normalize_text(text)
@@ -494,23 +480,6 @@ async def _handle_daily_operating(update, text: str) -> bool:
             await update.message.reply_text("\n".join(lines)[:3900])
             return True
 
-        if _has_any_phrase(lowered, ("apa next terbaik sekarang", "next terbaik sekarang", "next best action", "apa next step saya sekarang")):
-            payload = mcp_server.tool_paos_operating_summary_get(category="ai")
-            sections = payload.get("sections") or {}
-            recommended = str(sections.get("recommended_next_safe_step") or "Review pending action paling atas.")
-            focus = (sections.get("focus") or {}).get("current_focus") or "Belum ada fokus aktif"
-            await update.message.reply_text(
-                _render_product_value_block(
-                    title="Next terbaik sekarang:",
-                    status_signal=f"Fokus saat ini: {focus}",
-                    why_it_matters="Memilih satu next action sekarang menurunkan context switching dan mempercepat output nyata.",
-                    best_next_action=recommended,
-                    confidence=_compact_confidence("tinggi", "rekomendasi berasal dari operating summary terbaru"),
-                    evidence=f"focus={focus[:80]}; recommendation={recommended[:80]}",
-                )
-            )
-            return True
-
         if _has_any_phrase(lowered, ("review action saya", "review action", "ulasan action saya")):
             accepted = action_loop_list_actions(state="accepted", limit=1, remember_list=False)
             pending = [
@@ -531,27 +500,7 @@ async def _handle_daily_operating(update, text: str) -> bool:
             )
             return True
 
-        payload = mcp_server.tool_paos_operating_summary_get(category="ai")
-        if not payload.get("ok"):
-            await update.message.reply_text("Operating summary belum tersedia. Coba cek lagi sebentar.")
-            return True
-        sections = payload.get("sections") or {}
-        focus = (sections.get("focus") or {}).get("current_focus") or "Belum ada fokus"
-        pending = (sections.get("focus") or {}).get("pending_action_count")
-        source_summary = (sections.get("source_intelligence") or {}).get("latest_insight_summary") or "-"
-        memory_summary = (sections.get("memory_health") or {}).get("summary") or "-"
-        next_step = sections.get("recommended_next_safe_step") or "Review action pending paling atas."
-        await update.message.reply_text(
-            _render_product_value_block(
-                title="Status PAOS hari ini:",
-                status_signal=f"Fokus: {focus}; pending action: {pending}; signal: {source_summary}",
-                why_it_matters="Status ini menunjukkan apakah kamu perlu lanjut eksekusi fokus atau rapikan konteks dulu.",
-                best_next_action=str(next_step),
-                confidence=_compact_confidence("sedang", "berdasarkan operating summary, source insight, dan memory health"),
-                evidence=f"focus={focus[:60]}; pending={pending}; memory={memory_summary[:70]}",
-            )
-        )
-        return True
+        return False
     except Exception:
         return False
 
@@ -648,7 +597,7 @@ async def _handle_memory_intent(update, text: str) -> bool:
         )
         return True
 
-    if any(x in lowered for x in ("apa yang kamu ingat", "apa yang kamu ingat soal", "memory relevan", "cara kerja saya", "apa memory yang relevan")):
+    if any(x in lowered for x in ("apa yang kamu ingat", "apa yang kamu ingat soal", "memory relevan", "apa memory yang relevan")):
         topic = text
         for prefix in ("apa yang kamu ingat soal", "apa yang kamu ingat", "apa memory yang relevan untuk codex sekarang"):
             if lowered.startswith(prefix):
@@ -1054,7 +1003,8 @@ async def handle_free_text_query(update, context):
             "No external action was applied."
         )
         return
-    if _is_blocked_unsafe_operation_request(text):
+    unsafe_operation = _match_unsafe_operation_type(text)
+    if unsafe_operation:
         _trace_route("free-text", text, "blocked_unsafe_operation_request")
         proposal = mcp_server.tool_paos_approval_propose(
             source="telegram/free-text",
@@ -1062,7 +1012,7 @@ async def handle_free_text_query(update, context):
             proposed_operation=text,
             operation_type="future_external_write",
             evidence_refs=["telegram/free-text"],
-            payload_preview={"request": text[:240], "external_operation": "github_pr_create" if "github" in _normalize_text(text) else "public_api_publish"},
+            payload_preview={"request": text[:240], "external_operation": unsafe_operation},
         )
         approval = proposal.get("approval") or {}
         preview = approval.get("payload_preview") if isinstance(approval.get("payload_preview"), dict) else {}
@@ -1105,23 +1055,8 @@ async def handle_free_text_query(update, context):
     else:
         _trace_route("free-text", text, "hermes_unavailable:orchestration_disabled")
 
-    if _is_greeting_only_text(text):
-        _trace_route("free-text", text, "greeting_fallback")
-        await update.message.reply_text(_render_greeting_message())
-        return
-
-    if _is_daily_operating_text(text) or _is_weekly_review_text(text):
-        _trace_route("free-text", text, "daily_ux_fallback_after_hermes")
-        if await _handle_daily_operating(update, text):
-            return
-
-    if await _handle_source_intelligence(update, text):
-        _trace_route("free-text", text, "phase6_source_intelligence_fallback_after_hermes")
-        return
-
     if not hermes_attempted:
         _trace_route("free-text", text, "unknown_after_hermes_unavailable")
     else:
         _trace_route("free-text", text, "unknown_after_hermes_attempt")
-
-    await update.message.reply_text(_render_unknown_message())
+    await update.message.reply_text(_render_hermes_unavailable_message())

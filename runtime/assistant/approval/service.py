@@ -12,24 +12,22 @@ from .store import append_approval, append_audit_event, get_approval as store_ge
 
 _DECISIONS = {"approve": "approved", "reject": "rejected", "cancel": "cancelled"}
 _ALLOWED_APPLY_TYPES = {"local_action_state_update", "memory_candidate_promotion"}
-_BLOCKED_KEYWORDS = (
-    "github", "commit", "push", "merge", "pull request", "pr", "systemd", "systemctl", "cron", "scheduler", "gateway start", "enable hermes gateway", "public api", "tunnel", "shell",
+_BLOCKED_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\b(?:buat|bikin|create)\b.{0,40}\b(?:pr|pull request)\b|\b(?:pr|pull request)\b.{0,24}\b(?:di|ke)?\s*github\b", "github_pr_create"),
+    (r"\bpush\b.{0,24}\bcommit\b.{0,24}\bgithub\b|\bcommit\b.{0,24}\bpush\b.{0,24}\bgithub\b|\bpush\b.{0,24}\bgithub\b", "github_push_commit"),
+    (r"\bmerge\b.{0,24}\b(?:pr|pull request)\b|\bmerge\b.{0,24}\bgithub\b", "github_pr_merge"),
+    (r"\b(?:update|ubah|edit)\b.{0,40}\bissue\b.{0,24}\bgithub\b", "github_issue_update"),
+    (r"\b(?:apply|terapkan)\b.{0,40}\b(?:perubahan|change)\b.{0,40}\b(?:repo|repository|github)\b", "repo_apply_change"),
+    (r"\b(?:edit|ubah|update|buat|bikin|create|enable|start)\b.{0,32}\b(?:systemd|systemctl|scheduler)\b", "system_mutation"),
+    (r"\b(?:buat|bikin|create|edit|ubah|update)\b.{0,32}\bcron(?:\s+job)?\b|\bcrontab\b", "scheduler_cron_update"),
+    (r"\b(?:nyalakan|hidupkan|enable|start)\b.{0,32}\bhermes gateway\b", "gateway_start"),
+    (r"\b(?:open|buat|bikin|create|start|aktifkan|enable)\b.{0,40}\b(?:public api|tunnel)\b", "public_api_publish"),
+    (r"\b(?:jalankan|run)\b.{0,24}\bshell\b|\barbitrary shell\b", "shell_execution"),
 )
-
 
 def _has_blocked_keyword(op: str) -> bool:
     text = str(op or "").strip().lower()
-    for key in _BLOCKED_KEYWORDS:
-        needle = str(key).strip().lower()
-        if not needle:
-            continue
-        if " " in needle:
-            if needle in text:
-                return True
-            continue
-        if re.search(rf"\b{re.escape(needle)}\b", text):
-            return True
-    return False
+    return any(re.search(pattern, text) for pattern, _label in _BLOCKED_PATTERNS)
 _FUTURE_EXTERNAL_WRITE_WHITELIST = {
     "github_issue_create": {"enabled": False, "risk": "critical"},
     "github_pr_create": {"enabled": False, "risk": "critical"},

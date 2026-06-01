@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .models import ActionClassification
 
 
@@ -23,10 +25,10 @@ _APPROVAL_TERMS = (
     "merge",
     "schedule",
     "cron",
-    "github",
     "memory write",
     "paos_memory_write",
 )
+_GITHUB_MUTATION_PATTERN = r"\b(?:buat|bikin|create|push|commit|merge|update|ubah|edit|apply)\b.{0,40}\b(?:github|pr|pull request|issue|repo|repository)\b|\b(?:github|pr|pull request|issue|repo|repository)\b.{0,40}\b(?:buat|bikin|create|push|commit|merge|update|ubah|edit|apply)\b"
 _READ_ONLY_TERMS = ("status", "health", "context", "dashboard", "daily", "handoff", "read", "show", "list")
 
 
@@ -47,6 +49,8 @@ def classify_action_intent(intent: str, target: str | None = None, category: str
         )
 
     matches_approval = [term for term in _APPROVAL_TERMS if term in text]
+    if re.search(_GITHUB_MUTATION_PATTERN, text):
+        matches_approval.append("github_mutation")
     if matches_approval:
         return ActionClassification(
             action_class="approval_required",

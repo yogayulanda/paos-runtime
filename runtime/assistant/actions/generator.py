@@ -116,8 +116,8 @@ def create_action_draft(intent: str, target: str | None = None, category: str | 
         }
         warnings.append("No apply path is provided in Phase 4.")
     elif kind == "daily":
-        title = "Daily Action Draft"
-        summary = "Draft prioritas harian dari evidence terbaru."
+        title = "Draft aksi harian"
+        summary = "Draft prioritas harian generik dari evidence terbaru; belum otomatis jadi fokus utama."
         focus = evidence.get("focus_today") or "Belum ada focus_today."
         top_opp = (evidence.get("top_opportunities") or [])[:2]
         steps = [f"Fokus: {focus}", *[f"Prioritas: {item}" for item in top_opp], "Validasi output lewat /daily atau paos_daily_get."]

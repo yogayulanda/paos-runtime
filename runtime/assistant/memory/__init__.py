@@ -1,6 +1,7 @@
 from .factory import load_memory_provider
 from .local import LocalMemoryProvider
 from .mnemosyne import MnemosyneMemoryProvider
+from .personal_context import build_personal_context_pack, sync_personal_context_to_memory
 from .provider import (
     MemoryHealth,
     MemoryItem,
@@ -37,5 +38,7 @@ __all__ = [
     "memory_relevant_get",
     "working_context_get",
     "memory_health_get",
+    "sync_personal_context_to_memory",
+    "build_personal_context_pack",
     "load_memory_provider",
 ]

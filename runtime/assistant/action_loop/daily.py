@@ -9,7 +9,7 @@ def generate_daily_action(category: str = "runtime", persist: bool = True) -> Ac
     draft = create_action_draft(intent="daily action draft", category=category)
     return ActionRecord(
         action_id=make_id("action"),
-        title=str(draft.get("title") or "Daily Action Draft"),
+        title=str(draft.get("title") or "Draft aksi harian"),
         summary=str(draft.get("summary") or "Draft prioritas harian."),
         steps=[str(x) for x in (draft.get("steps") or [])],
         state="proposed",
