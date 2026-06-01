@@ -69,8 +69,40 @@ def _resolve_handoff_target(text: str) -> str:
 def _render_unknown_message() -> str:
     return (
         "Saya belum paham maksudnya.\n"
-        "Coba contoh: 'hari ini saya harus ngapain', 'context saya sehat gak', "
-        "'bikin handoff buat codex', atau 'ada opportunity apa hari ini'."
+        "Coba contoh: 'apa status PAOS hari ini?', 'apa fokus saya sekarang?', "
+        "'buat daily plan', 'source intelligence sehat gak?', "
+        "'buat handoff Codex dari fokus sekarang', atau 'review hasil Codex ini: ...'."
+    )
+
+
+def _is_greeting_only_text(text: str) -> bool:
+    lowered = _normalize_text(text)
+    if not lowered:
+        return False
+    cleaned = re.sub(r"[^a-z\s]", " ", lowered)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    greetings = {
+        "halo",
+        "hallo",
+        "hai",
+        "hi",
+        "yo",
+        "pagi",
+        "siang",
+        "sore",
+        "malam",
+        "halo paos",
+        "hai paos",
+        "hi paos",
+    }
+    return cleaned in greetings
+
+
+def _render_greeting_message() -> str:
+    return (
+        "Halo! PAOS siap. Kamu bisa tanya: apa status PAOS hari ini?, "
+        "apa fokus saya sekarang?, buat daily plan, cek context saya sehat gak?, "
+        "buat handoff Codex dari fokus sekarang."
     )
 
 
@@ -636,13 +668,18 @@ async def handle_free_text_query(update, context):
     if await _handle_memory_intent(update, text):
         _trace_route("free-text", text, "phase7_memory_intent")
         return
+    hermes_attempted = False
     if hermes_orchestration_enabled():
+        hermes_attempted = True
         _trace_route("free-text", text, "hermes_orchestration")
         hermes_result = query_hermes(text, timeout_seconds=hermes_timeout_seconds())
         if hermes_result.used and hermes_result.response_text.strip():
             _trace_route("free-text", text, "hermes_response_used")
             await update.message.reply_text(hermes_result.response_text.strip())
             return
+        _trace_route("free-text", text, "hermes_fallback_after_empty_or_error")
+    else:
+        _trace_route("free-text", text, "hermes_unavailable:orchestration_disabled")
 
     intent = route_intent(text)
     _trace_route("free-text", text, f"deterministic_fallback:{intent}")
@@ -680,5 +717,15 @@ async def handle_free_text_query(update, context):
     if intent == "status":
         await handle_status(update)
         return
+
+    if _is_greeting_only_text(text):
+        _trace_route("free-text", text, "greeting_fallback")
+        await update.message.reply_text(_render_greeting_message())
+        return
+
+    if not hermes_attempted:
+        _trace_route("free-text", text, "unknown_after_hermes_unavailable")
+    else:
+        _trace_route("free-text", text, "unknown_after_hermes_attempt")
 
     await update.message.reply_text(_render_unknown_message())
