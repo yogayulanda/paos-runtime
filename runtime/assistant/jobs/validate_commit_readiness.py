@@ -148,6 +148,9 @@ def main() -> int:
         and "enable/start Hermes gateway" not in line
         and "Do not expose public API/tunnel" not in line
         and "No public API/tunnel" not in line
+        and "blocked_unsafe_operation_request" not in line
+        and '"public api",' not in line
+        and '"tunnel",' not in line
         and "No Hermes gateway enable/start behavior" not in line
         and "gateway must remain stopped" not in line.lower()
     ]
@@ -191,7 +194,7 @@ def main() -> int:
 
     _run_required(
         "runtime_artifact_ignore_audit",
-        ["bash", "-lc", "git check-ignore -v assistant/action-loop/actions.jsonl assistant/action-loop/events.jsonl assistant/action-loop/index.json runtime/assistant/memory/local.jsonl runtime/assistant/memory/runtime/.gitkeep intelligence/raw/.gitkeep >/dev/null && echo ignored_ok"],
+        ["bash", "-lc", "git check-ignore -v assistant/action-loop/actions.jsonl assistant/action-loop/events.jsonl assistant/action-loop/index.json assistant/approval/approvals.jsonl assistant/approval/audit-events.jsonl runtime/assistant/memory/local.jsonl runtime/assistant/memory/runtime/.gitkeep intelligence/raw/.gitkeep >/dev/null && echo ignored_ok"],
     )
 
     status = _run([py, "-c", "import sys;sys.path.insert(0,'runtime');from assistant.mcp.server import tool_paos_runtime_status_get as f;p=f();s=p.get('sections') or {};print(f\"hermes_gateway_status={s.get('hermes_gateway_status')} gateway_running={s.get('gateway_running')}\")"]) 

@@ -16,7 +16,7 @@ if str(ROOT / "runtime") not in sys.path:
     sys.path.insert(0, str(ROOT / "runtime"))
 
 from bot.commands.assistant_query import handle_free_text_query  # type: ignore
-from assistant.action_loop import list_actions  # type: ignore
+from assistant.mcp import server as mcp_server  # type: ignore
 
 
 class _Msg:
@@ -62,7 +62,7 @@ async def _run() -> None:
         ),
         (
             "1",
-            ["-> accepted", "No external action was applied.", "phase5_action_loop:transition:ordinal_numeric"],
+            ["dibuat sebagai approval", "No external action was applied.", "phase5_action_loop:transition:ordinal_numeric"],
             [],
         ),
         (
@@ -92,8 +92,8 @@ async def _run() -> None:
         print(f"[E2E {idx}] Assertion Summary: {'; '.join(assertions)}")
         print("-" * 80)
 
-    latest_focus = list_actions(state="accepted", limit=1, remember_list=False)
-    _assert(bool(latest_focus), "focus should have accepted action after ordinal select")
+    latest_pending_approval = mcp_server.tool_paos_approval_list(status="pending", limit=1)
+    _assert(bool(latest_pending_approval.get("items") or []), "pending approval should exist after ordinal select")
 
 
 def main() -> int:

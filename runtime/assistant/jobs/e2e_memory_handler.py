@@ -46,9 +46,9 @@ def _assert(cond: bool, msg: str) -> None:
 
 async def _run() -> None:
     checks: list[tuple[str, list[str]]] = [
-        ("ingat ini: PAOS command harus fallback saja", ["Memory was written"]),
+        ("ingat ini: PAOS command harus fallback saja", ["approval", "No external action was applied."]),
         ("apa yang kamu ingat soal PAOS command?", ["Memory relevan", "PAOS command"]),
-        ("update memory tentang PAOS command: natural language adalah UX utama", ["Memory was written"]),
+        ("update memory tentang PAOS command: natural language adalah UX utama", ["approval", "No external action was applied."]),
         ("ada memory baru yang perlu disimpan?", ["Balas natural|No memory was written yet"]),
         ("tolak memory itu", ["No memory was written yet"]),
         ("memory PAOS saya sehat gak?", ["provider=", "No memory was written yet"]),

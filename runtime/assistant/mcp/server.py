@@ -43,6 +43,14 @@ from assistant.agent_orchestration import (
     list_handoffs as agent_handoff_list,
     review_result as agent_result_review,
 )
+from assistant.approval import (
+    apply_approval,
+    create_approval,
+    decide_approval,
+    get_approval,
+    list_approvals,
+    list_audit_events as approval_list_audit_events,
+)
 from assistant.action_loop import (
     accept_action,
     create_daily_action,
@@ -409,10 +417,11 @@ def tool_paos_memory_candidate_list(status: str | None = None, limit: int = 10) 
 
 
 def tool_paos_memory_candidate_transition(candidate_id: str, transition: str) -> dict[str, Any]:
-    try:
-        return transition_candidate(candidate_id=candidate_id, transition=transition)
-    except Exception as exc:
-        return _error_payload(errors=[str(exc)])
+    return _error_payload(
+        errors=["direct_memory_candidate_transition_blocked_use_approval"],
+        source="paos.mcp.memory-candidate.transition",
+        summary="Blocked in v1.5a: explicit approval + apply required.",
+    )
 
 
 def tool_paos_memory_approved_write(
@@ -423,17 +432,67 @@ def tool_paos_memory_approved_write(
     evidence_summary: str,
     confidence: float = 0.9,
 ) -> dict[str, Any]:
+    return _error_payload(
+        errors=["direct_memory_write_blocked_use_approval"],
+        source="paos.mcp.memory-approved-write",
+        summary="Blocked in v1.5a: explicit approval + apply required.",
+    )
+
+
+def tool_paos_approval_propose(
+    source: str,
+    requested_by: str,
+    proposed_operation: str,
+    operation_type: str,
+    evidence_refs: list[str] | None = None,
+    payload_preview: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     try:
-        return direct_approved_write(
-            content,
-            memory_type=type,
-            source_type=source_type,
-            source_ref=source_ref,
-            evidence_summary=evidence_summary,
-            confidence=confidence,
+        return create_approval(
+            source=source,
+            requested_by=requested_by,
+            proposed_operation=proposed_operation,
+            operation_type=operation_type,
+            evidence_refs=evidence_refs,
+            payload_preview=payload_preview,
         )
     except Exception as exc:
         return _error_payload(errors=[str(exc)])
+
+
+def tool_paos_approval_list(status: str | None = None, limit: int = 20) -> dict[str, Any]:
+    try:
+        return list_approvals(status=status, limit=limit)
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)], items=[])
+
+
+def tool_paos_approval_get(approval_id: str) -> dict[str, Any]:
+    try:
+        return get_approval(approval_id)
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)])
+
+
+def tool_paos_approval_decide(approval_id: str, decision: str, actor: str = "mcp") -> dict[str, Any]:
+    try:
+        return decide_approval(approval_id=approval_id, decision=decision, actor=actor)
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)])
+
+
+def tool_paos_approval_apply(approval_id: str, actor: str = "mcp") -> dict[str, Any]:
+    try:
+        return apply_approval(approval_id=approval_id, actor=actor)
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)])
+
+
+def tool_paos_approval_audit_list(approval_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+    try:
+        return approval_list_audit_events(approval_id=approval_id, limit=limit)
+    except Exception as exc:
+        return _error_payload(errors=[str(exc)], items=[])
 
 
 def tool_paos_memory_health_get() -> dict[str, Any]:
@@ -1492,35 +1551,12 @@ def tool_paos_action_resolve(
 
 
 def tool_paos_action_state_transition(action_id: str, transition: str, note: str | None = None) -> dict[str, Any]:
-    normalized = str(transition or "").strip().lower()
-    if normalized == "accept":
-        normalized = "accepted"
-    if normalized == "reject":
-        normalized = "rejected"
-    if normalized == "defer":
-        normalized = "deferred"
-    if normalized == "accepted":
-        result = accept_action(action_id, actor="mcp", note=note or "")
-    elif normalized == "rejected":
-        result = reject_action(action_id, actor="mcp", note=note or "")
-    elif normalized == "deferred":
-        result = defer_action(action_id, actor="mcp", note=note or "")
-    else:
-        return _error_payload(
-            errors=[f"invalid transition: {transition}"],
-            generated_at=_now_iso(),
-            source="paos.mcp.action-loop.transition",
-            summary="transition rejected",
-        )
-    return {
-        "ok": result.ok,
-        "generated_at": _now_iso(),
-        "source": "paos.mcp.action-loop.transition",
-        "summary": result.message,
-        "sections": result.to_dict(),
-        "warnings": result.warnings,
-        "errors": result.errors,
-    }
+    return _error_payload(
+        errors=["direct_action_transition_blocked_use_approval"],
+        generated_at=_now_iso(),
+        source="paos.mcp.action-loop.transition",
+        summary="Blocked in v1.5a: explicit approval + apply required.",
+    )
 
 
 def _load_fastmcp():
@@ -1643,6 +1679,44 @@ def create_mcp_server():
     @server.tool(name="paos_memory_health_get")
     def paos_memory_health_get() -> dict[str, Any]:
         return tool_paos_memory_health_get()
+
+    @server.tool(name="paos_approval_propose")
+    def paos_approval_propose(
+        source: str,
+        requested_by: str,
+        proposed_operation: str,
+        operation_type: str,
+        evidence_refs: list[str] | None = None,
+        payload_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return tool_paos_approval_propose(
+            source=source,
+            requested_by=requested_by,
+            proposed_operation=proposed_operation,
+            operation_type=operation_type,
+            evidence_refs=evidence_refs,
+            payload_preview=payload_preview,
+        )
+
+    @server.tool(name="paos_approval_list")
+    def paos_approval_list(status: str | None = None, limit: int = 20) -> dict[str, Any]:
+        return tool_paos_approval_list(status=status, limit=limit)
+
+    @server.tool(name="paos_approval_get")
+    def paos_approval_get(approval_id: str) -> dict[str, Any]:
+        return tool_paos_approval_get(approval_id=approval_id)
+
+    @server.tool(name="paos_approval_decide")
+    def paos_approval_decide(approval_id: str, decision: str, actor: str = "mcp") -> dict[str, Any]:
+        return tool_paos_approval_decide(approval_id=approval_id, decision=decision, actor=actor)
+
+    @server.tool(name="paos_approval_apply")
+    def paos_approval_apply(approval_id: str, actor: str = "mcp") -> dict[str, Any]:
+        return tool_paos_approval_apply(approval_id=approval_id, actor=actor)
+
+    @server.tool(name="paos_approval_audit_list")
+    def paos_approval_audit_list(approval_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+        return tool_paos_approval_audit_list(approval_id=approval_id, limit=limit)
 
     @server.tool(name="paos_context_get")
     def paos_context_get(

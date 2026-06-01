@@ -11,27 +11,21 @@ from assistant.hermes import query_hermes  # type: ignore
 from assistant.hermes import hermes_orchestration_enabled  # type: ignore
 from assistant.hermes import hermes_timeout_seconds  # type: ignore
 from assistant.action_loop import (  # type: ignore
-    accept_action,
     create_daily_action,
-    defer_action,
     list_actions as action_loop_list_actions,
-    reject_action,
     render_action_detail,
     render_action_list,
-    render_action_update_result,
     render_conversational_next_steps,
     resolve_action_reference,
 )
 from assistant.mcp import server as mcp_server  # type: ignore
 from assistant.memory import (  # type: ignore
     create_candidate,
-    direct_approved_write,
     list_candidates,
     memory_health_get,
     memory_profile_get,
     memory_relevant_get,
     working_context_get,
-    transition_candidate,
 )
 
 
@@ -129,6 +123,43 @@ def _is_action_loop_text(text: str) -> bool:
     return any(re.search(pattern, lowered) for pattern in intent_patterns)
 
 
+def _is_approval_text(text: str) -> bool:
+    lowered = _normalize_text(text)
+    patterns = (
+        r"\btampilkan approval pending\b",
+        r"\blist approval\b",
+        r"\bapprove\b",
+        r"\breject approval\b",
+        r"\bcancel approval\b",
+        r"\bapply approval\b",
+        r"\bapa yang akan di-apply\b",
+        r"\bjalankan perubahan ini\b",
+    )
+    return any(re.search(pattern, lowered) for pattern in patterns)
+
+
+def _format_approval_line(item: dict, idx: int) -> str:
+    return (
+        f"{idx}. {item.get('approval_id')} [{item.get('status')}]\n"
+        f"   op: {item.get('operation_type')} | risk: {item.get('risk_level')}\n"
+        f"   what: {str(item.get('proposed_operation') or '-')[:140]}"
+    )
+
+
+def _resolve_approval_id_from_text(lowered: str) -> str | None:
+    direct = re.search(r"approval[_\-a-z0-9]+", lowered)
+    if direct:
+        return direct.group(0)
+    ord_match = re.search(r"nomor\s+(\d+)", lowered)
+    if not ord_match:
+        return None
+    ordinal = int(ord_match.group(1))
+    listed = (mcp_server.tool_paos_approval_list(status="pending", limit=20).get("items") or [])
+    if ordinal <= 0 or ordinal > len(listed):
+        return None
+    return str(listed[ordinal - 1].get("approval_id") or "")
+
+
 def _is_forbidden_gateway_request(text: str) -> bool:
     lowered = _normalize_text(text)
     return any(
@@ -140,6 +171,28 @@ def _is_forbidden_gateway_request(text: str) -> bool:
             "hidupkan hermes gateway",
         )
     )
+
+
+def _is_blocked_unsafe_operation_request(text: str) -> bool:
+    lowered = _normalize_text(text)
+    markers = (
+        "github",
+        "commit",
+        "push",
+        "merge",
+        "pull request",
+        "systemd",
+        "systemctl",
+        "cron",
+        "scheduler",
+        "arbitrary shell",
+        "jalankan shell",
+        "run shell",
+        "public api",
+        "tunnel",
+        "start hermes gateway",
+    )
+    return any(x in lowered for x in markers)
 
 def _is_daily_operating_text(text: str) -> bool:
     lowered = _normalize_text(text)
@@ -514,18 +567,31 @@ async def _handle_memory_intent(update, text: str) -> bool:
             await update.message.reply_text("Isi memory belum jelas. Tulis singkat apa yang mau disimpan.")
             return True
         memory_type = _extract_memory_type(text)
-        result = direct_approved_write(
-            content,
-            memory_type=memory_type,
-            source_type="manual_user_instruction",
-            source_ref="telegram/free-text",
-            evidence_summary=f"Instruksi user eksplisit: {_normalize_text(text)[:160]}",
-            confidence=0.95,
+        proposal = mcp_server.tool_paos_approval_propose(
+            source="telegram/free-text",
+            requested_by="user",
+            proposed_operation="promote memory candidate from explicit free-text memory write",
+            operation_type="memory_candidate_promotion",
+            evidence_refs=["telegram/free-text", f"query:{_normalize_text(text)[:120]}"],
+            payload_preview={
+                "content": content,
+                "memory_type": memory_type,
+                "source_type": "manual_user_instruction",
+                "source_ref": "telegram/free-text",
+                "evidence_summary": f"Instruksi user eksplisit: {_normalize_text(text)[:160]}",
+                "requires_manual_candidate_creation": True,
+            },
         )
-        if result.get("ok"):
-            await update.message.reply_text("Memory tersimpan dan aktif. Memory was written.")
-        else:
-            await update.message.reply_text("Gagal menyimpan memory. No memory was written yet.")
+        approval = proposal.get("approval") or {}
+        await update.message.reply_text(
+            (
+                "Permintaan disiapkan sebagai approval (belum dieksekusi).\n"
+                f"- approval_id: {approval.get('approval_id')}\n"
+                f"- risk: {approval.get('risk_level')}\n"
+                "Lanjutkan: approve approval ini, lalu apply approval ini.\n"
+                "No external action was applied."
+            )[:3900]
+        )
         return True
 
     if any(x in lowered for x in ("apa yang kamu ingat", "apa yang kamu ingat soal", "memory relevan", "cara kerja saya", "apa memory yang relevan")):
@@ -590,11 +656,23 @@ async def _handle_memory_intent(update, text: str) -> bool:
             await update.message.reply_text("Nomor candidate tidak ditemukan. No memory was written yet.")
             return True
         candidate_id = str(listed[ordinal - 1].get("candidate_id") or "")
-        result = transition_candidate(candidate_id, "approve")
-        if result.get("ok"):
-            await update.message.reply_text("Candidate disetujui dan memory ditulis. Memory was written.")
-        else:
-            await update.message.reply_text("Candidate belum bisa disimpan. No memory was written yet.")
+        proposal = mcp_server.tool_paos_approval_propose(
+            source="telegram/memory-candidate",
+            requested_by="user",
+            proposed_operation=f"promote memory candidate {candidate_id}",
+            operation_type="memory_candidate_promotion",
+            evidence_refs=["memory/candidate", f"candidate_id:{candidate_id}"],
+            payload_preview={"candidate_id": candidate_id},
+        )
+        approval = proposal.get("approval") or {}
+        await update.message.reply_text(
+            (
+                "Candidate dipilih untuk approval flow.\n"
+                f"- approval_id: {approval.get('approval_id')}\n"
+                "Belum ditulis ke memory aktif. Approve dulu lalu apply explicit.\n"
+                "No external action was applied."
+            )[:3900]
+        )
         return True
 
     if "tolak memory itu" in lowered:
@@ -603,11 +681,11 @@ async def _handle_memory_intent(update, text: str) -> bool:
             await update.message.reply_text("Tidak ada candidate aktif untuk ditolak. No memory was written yet.")
             return True
         candidate_id = str(listed[0].get("candidate_id") or "")
-        result = transition_candidate(candidate_id, "reject")
-        if result.get("ok"):
-            await update.message.reply_text("Candidate memory ditolak. No memory was written yet.")
+        result = mcp_server.tool_paos_memory_candidate_transition(candidate_id=candidate_id, transition="reject")
+        if not result.get("ok"):
+            await update.message.reply_text("Reject candidate memory butuh approval rail terpisah. No memory was written yet.")
         else:
-            await update.message.reply_text("Gagal menolak candidate memory. No memory was written yet.")
+            await update.message.reply_text("Candidate memory ditolak. No memory was written yet.")
         return True
 
     if "memory paos saya sehat" in lowered:
@@ -632,17 +710,23 @@ async def _handle_action_loop(update, text: str) -> bool:
         if not action:
             await update.message.reply_text("Referensi belum jelas. Maksud Anda nomor berapa dari daftar terakhir?")
             return True
-        result = accept_action(action.action_id, actor="telegram", note=f"ordinal {lowered}")
-        if result.ok and result.action:
-            await update.message.reply_text(
-                (
-                    f"Action '{result.action.title}' berubah: {action.state} -> {result.action.state}.\n"
-                    "Accepted berarti arah/fokus dipilih, bukan dieksekusi.\n"
-                    "No external action was applied."
-                )[:3900]
-            )
-        else:
-            await update.message.reply_text(render_action_update_result(result))
+        proposal = mcp_server.tool_paos_approval_propose(
+            source="telegram/action-loop",
+            requested_by="user",
+            proposed_operation=f"set action {action.action_id} -> accepted",
+            operation_type="local_action_state_update",
+            evidence_refs=["action-loop", f"action_id:{action.action_id}"],
+            payload_preview={"action_id": action.action_id, "transition": "accepted", "note": f"ordinal {lowered}"},
+        )
+        approval = proposal.get("approval") or {}
+        await update.message.reply_text(
+            (
+                f"Permintaan accept action dibuat sebagai approval: {approval.get('approval_id')}.\n"
+                "Accepted action tetap chosen focus; belum ada apply.\n"
+                "Gunakan approve lalu apply approval secara explicit.\n"
+                "No external action was applied."
+            )[:3900]
+        )
         return True
     if "buat action hari ini" in lowered or ("daily action" in lowered and "buat" in lowered):
         _trace_route("action-loop", text, "phase5_action_loop:create_daily")
@@ -729,7 +813,7 @@ async def _handle_action_loop(update, text: str) -> bool:
         await update.message.reply_text(handoff[:3900])
         return True
 
-    for trigger, fn in (("accept", accept_action), ("jadikan", accept_action), ("pilih", accept_action), ("reject", reject_action), ("tolak", reject_action), ("defer", defer_action), ("tunda", defer_action)):
+    for trigger, target_transition in (("accept", "accepted"), ("jadikan", "accepted"), ("pilih", "accepted"), ("reject", "rejected"), ("tolak", "rejected"), ("defer", "deferred"), ("tunda", "deferred")):
         if trigger in lowered:
             _trace_route("action-loop", text, f"phase5_action_loop:transition:{trigger}")
             ordinal_match = re.search(r"nomor\s+(\d+)", lowered)
@@ -738,19 +822,115 @@ async def _handle_action_loop(update, text: str) -> bool:
             if not action:
                 await update.message.reply_text("Referensi belum jelas. Maksud Anda nomor berapa dari daftar terakhir?")
                 return True
-            result = fn(action.action_id, actor="telegram", note=lowered)
-            if result.ok and result.action:
-                previous_state = action.state
-                await update.message.reply_text(
-                    (
-                        f"Action '{result.action.title}' berubah: {previous_state} -> {result.action.state}.\n"
-                        "Accepted berarti arah/fokus dipilih, bukan dieksekusi.\n"
-                        "No external action was applied."
-                    )[:3900]
-                )
-            else:
-                await update.message.reply_text(render_action_update_result(result))
+            proposal = mcp_server.tool_paos_approval_propose(
+                source="telegram/action-loop",
+                requested_by="user",
+                proposed_operation=f"set action {action.action_id} -> {target_transition}",
+                operation_type="local_action_state_update",
+                evidence_refs=["action-loop", f"action_id:{action.action_id}"],
+                payload_preview={"action_id": action.action_id, "transition": target_transition, "note": lowered},
+            )
+            approval = proposal.get("approval") or {}
+            await update.message.reply_text(
+                (
+                    f"Perubahan action dibuat sebagai approval: {approval.get('approval_id')} [{approval.get('status')}].\n"
+                    f"Risk: {approval.get('risk_level')} | Operation: {approval.get('operation_type')}.\n"
+                    "Approve tidak auto-apply. Gunakan apply approval explicit.\n"
+                    "No external action was applied."
+                )[:3900]
+            )
             return True
+    return False
+
+
+async def _handle_approval(update, text: str) -> bool:
+    lowered = _normalize_text(text)
+    if "tampilkan approval pending" in lowered or "list approval" in lowered:
+        payload = mcp_server.tool_paos_approval_list(status="pending", limit=10)
+        items = payload.get("items") or []
+        if not items:
+            await update.message.reply_text("Tidak ada approval pending. No external action was applied.")
+            return True
+        lines = ["Approval pending:"]
+        for idx, item in enumerate(items, start=1):
+            lines.append(_format_approval_line(item, idx))
+        lines.append("Gunakan: approve/reject/cancel/apply approval nomor N.")
+        lines.append("No external action was applied.")
+        await update.message.reply_text("\n".join(lines)[:3900])
+        return True
+
+    if "apa yang akan di-apply" in lowered:
+        aid = _resolve_approval_id_from_text(lowered)
+        if not aid:
+            await update.message.reply_text("Approval belum jelas. Sebut: apply approval nomor 1.")
+            return True
+        payload = mcp_server.tool_paos_approval_get(approval_id=aid)
+        if not payload.get("ok"):
+            await update.message.reply_text("Approval tidak ditemukan. No external action was applied.")
+            return True
+        item = payload.get("approval") or {}
+        preview = item.get("payload_preview") if isinstance(item.get("payload_preview"), dict) else {}
+        lines = [
+            "Preview apply:",
+            f"- approval_id: {item.get('approval_id')}",
+            f"- status: {item.get('status')}",
+            f"- operation: {item.get('operation_type')}",
+            f"- risk: {item.get('risk_level')}",
+            f"- evidence: {', '.join(item.get('evidence_refs') or ['-'])}",
+            f"- payload_preview: {str(preview)[:220]}",
+            "Belum dieksekusi. Gunakan explicit: apply approval ...",
+            "No external action was applied.",
+        ]
+        await update.message.reply_text("\n".join(lines)[:3900])
+        return True
+
+    decision = None
+    if "approve" in lowered:
+        decision = "approve"
+    elif "reject approval" in lowered:
+        decision = "reject"
+    elif "cancel approval" in lowered:
+        decision = "cancel"
+    if decision:
+        aid = _resolve_approval_id_from_text(lowered)
+        if not aid:
+            await update.message.reply_text("Approval belum jelas. Sebut nomor approval dari daftar pending.")
+            return True
+        payload = mcp_server.tool_paos_approval_decide(approval_id=aid, decision=decision, actor="telegram")
+        if not payload.get("ok"):
+            await update.message.reply_text("Decision gagal diproses. No external action was applied.")
+            return True
+        item = payload.get("approval") or {}
+        await update.message.reply_text(
+            (
+                f"Approval {item.get('approval_id')} -> {item.get('status')}.\n"
+                "Approve hanya mengubah status, belum apply.\n"
+                "Gunakan explicit: apply approval ...\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return True
+
+    if "apply approval" in lowered:
+        aid = _resolve_approval_id_from_text(lowered)
+        if not aid:
+            await update.message.reply_text("Approval belum jelas. Sebut nomor approval dari daftar pending/approved.")
+            return True
+        payload = mcp_server.tool_paos_approval_apply(approval_id=aid, actor="telegram")
+        if not payload.get("ok"):
+            await update.message.reply_text(
+                (f"Apply ditolak/gagal: {', '.join(payload.get('errors') or ['unknown'])}.\nNo external action was applied.")[:3900]
+            )
+            return True
+        item = payload.get("approval") or {}
+        await update.message.reply_text(
+            (
+                f"Apply selesai untuk {item.get('approval_id')} dengan status {item.get('status')}.\n"
+                f"Operation: {item.get('operation_type')} (local-only).\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return True
     return False
 
 
@@ -815,6 +995,31 @@ async def handle_free_text_query(update, context):
             "No external action was applied."
         )
         return
+    if _is_blocked_unsafe_operation_request(text):
+        _trace_route("free-text", text, "blocked_unsafe_operation_request")
+        proposal = mcp_server.tool_paos_approval_propose(
+            source="telegram/free-text",
+            requested_by="user",
+            proposed_operation=text,
+            operation_type="future_external_write",
+            evidence_refs=["telegram/free-text"],
+            payload_preview={"request": text[:240]},
+        )
+        approval = proposal.get("approval") or {}
+        await update.message.reply_text(
+            (
+                "Permintaan diblokir oleh safety policy v1.5a.\n"
+                f"- approval_id: {approval.get('approval_id')}\n"
+                f"- status: {approval.get('status')}\n"
+                "- reason: external/unsafe mutation tidak diizinkan pada controlled execution foundation.\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return
+    if _is_approval_text(text):
+        _trace_route("free-text", text, "phase10_approval_rail")
+        if await _handle_approval(update, text):
+            return
     if _is_action_loop_text(text):
         _trace_route("free-text", text, "phase5_action_loop:intent_match")
         if await _handle_action_loop(update, text):

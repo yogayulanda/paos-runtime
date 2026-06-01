@@ -45,6 +45,9 @@ __pycache__/
 /assistant/agent-orchestration/*
 !/assistant/agent-orchestration/.gitkeep
 
+# PAOS local approval runtime state
+/assistant/approval/*.jsonl
+
 # Local manual runtime snapshots (Phase 10)
 backups/snapshots/**
 !backups/snapshots/.gitkeep

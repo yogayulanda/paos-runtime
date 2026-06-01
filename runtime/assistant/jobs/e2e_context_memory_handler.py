@@ -49,8 +49,8 @@ async def _run() -> None:
     checks = [
         (
             "ingat ini: prefer saya adalah jawaban ringkas berbasis evidence",
-            ("memory was written",),
-            ("no external action was applied",),
+            ("approval", "belum dieksekusi", "no external action was applied"),
+            (),
         ),
         (
             "apa memory yang relevan untuk codex sekarang?",
