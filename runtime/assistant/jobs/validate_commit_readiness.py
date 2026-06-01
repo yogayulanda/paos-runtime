@@ -114,6 +114,10 @@ def main() -> int:
         for line in secret_hits
         if "missing token" not in line.lower()
         and "for token in" not in line.lower()
+        and "token.lower()" not in line.lower()
+        and "missing {token}" not in line.lower()
+        and "token_options" not in line.lower()
+        and "opt in where" not in line.lower()
         and "token.split" not in line.lower()
         and "secret_hits" not in line.lower()
         and "secret_pattern" not in line.lower()

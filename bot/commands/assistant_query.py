@@ -7,7 +7,6 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 if str(RUNTIME_DIR) not in sys.path:
     sys.path.insert(0, str(RUNTIME_DIR))
 
-from assistant.query import route_intent  # type: ignore
 from assistant.hermes import query_hermes  # type: ignore
 from assistant.hermes import hermes_orchestration_enabled  # type: ignore
 from assistant.hermes import hermes_timeout_seconds  # type: ignore
@@ -23,12 +22,6 @@ from assistant.action_loop import (  # type: ignore
     render_conversational_next_steps,
     resolve_action_reference,
 )
-from assistant.source_intelligence import (  # type: ignore
-    create_action_from_latest_insight,
-    get_source_insights,
-    get_source_recommendation,
-    get_source_status,
-)
 from assistant.mcp import server as mcp_server  # type: ignore
 from assistant.memory import (  # type: ignore
     create_candidate,
@@ -39,17 +32,6 @@ from assistant.memory import (  # type: ignore
     memory_relevant_get,
     transition_candidate,
 )
-from bot.commands.assistant_surface import (
-    _build_handoff_message,
-    _build_memory_surface_message,
-    _build_promotion_message,
-    handle_context,
-    handle_daily,
-    handle_dashboard,
-    handle_insight_relevance,
-    handle_opportunities,
-)
-from bot.commands.intelligence import handle_status
 
 
 def _trace_route(stage: str, text: str, route: str) -> None:
@@ -121,7 +103,6 @@ def _is_action_loop_text(text: str) -> bool:
     intent_patterns = (
         r"\bbuat action hari ini\b",
         r"\bapa action pending saya\b",
-        r"\bapa fokus saya sekarang\b",
         r"\bpilih nomor \d+\b",
         r"\baccept yang tadi\b",
         r"\btunda yang tadi\b",
@@ -136,7 +117,7 @@ def _is_action_loop_text(text: str) -> bool:
     lowered = str(text or "").lower()
     keys = (
         "action", "pending", "accept", "reject", "defer", "tunda", "tolak",
-        "nomor", "yang tadi", "fokus", "handoff codex", "buat action hari ini",
+        "nomor", "yang tadi", "handoff codex", "buat action hari ini",
     )
     return any(k in lowered for k in keys)
 
@@ -655,16 +636,6 @@ async def handle_free_text_query(update, context):
         _trace_route("free-text", text, "phase5_action_loop:intent_match")
         if await _handle_action_loop(update, text):
             return
-    if await _handle_source_intelligence(update, text):
-        return
-    if _is_agent_orchestration_text(text):
-        _trace_route("free-text", text, "phase9_agent_orchestration")
-        if await _handle_agent_orchestration(update, text):
-            return
-    if _is_daily_operating_text(text):
-        _trace_route("free-text", text, "phase8_daily_operating")
-        if await _handle_daily_operating(update, text):
-            return
     if await _handle_memory_intent(update, text):
         _trace_route("free-text", text, "phase7_memory_intent")
         return
@@ -680,43 +651,6 @@ async def handle_free_text_query(update, context):
         _trace_route("free-text", text, "hermes_fallback_after_empty_or_error")
     else:
         _trace_route("free-text", text, "hermes_unavailable:orchestration_disabled")
-
-    intent = route_intent(text)
-    _trace_route("free-text", text, f"deterministic_fallback:{intent}")
-
-    if intent == "daily":
-        await handle_daily(update)
-        return
-    if intent == "operating_summary":
-        if await _handle_daily_operating(update, text):
-            return
-    if intent == "daily_plan":
-        if await _handle_daily_operating(update, "daily plan"):
-            return
-    if intent == "dashboard":
-        await handle_dashboard(update)
-        return
-    if intent == "memory":
-        await update.message.reply_text(_build_memory_surface_message())
-        return
-    if intent == "handoff":
-        await update.message.reply_text(_build_handoff_message(_resolve_handoff_target(text)))
-        return
-    if intent == "context_update":
-        await update.message.reply_text(_build_promotion_message())
-        return
-    if intent == "context_health":
-        await handle_context(update)
-        return
-    if intent == "opportunities":
-        await handle_opportunities(update)
-        return
-    if intent == "insight_relevance":
-        await handle_insight_relevance(update)
-        return
-    if intent == "status":
-        await handle_status(update)
-        return
 
     if _is_greeting_only_text(text):
         _trace_route("free-text", text, "greeting_fallback")

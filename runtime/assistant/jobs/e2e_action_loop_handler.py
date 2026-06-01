@@ -66,11 +66,6 @@ async def _run() -> None:
             [],
         ),
         (
-            "apa fokus saya sekarang?",
-            ["phase5_action_loop:focus"],
-            ["paos_daily_get", "tidak bisa akses paos"],
-        ),
-        (
             "nyalakan Hermes gateway",
             ["ditolak", "No external action was applied.", "blocked_gateway_request"],
             [],
@@ -85,7 +80,8 @@ async def _run() -> None:
         assertions: list[str] = []
         for token in must_have:
             where = (bot_response + "\n" + route_trace).lower()
-            ok = token.lower() in where
+            token_options = [x.strip().lower() for x in token.split("||") if x.strip()]
+            ok = any(opt in where for opt in token_options)
             assertions.append(f"{'PASS' if ok else 'FAIL'} contains '{token}'")
             _assert(ok, f"missing token: {token}")
         for token in must_not_have:

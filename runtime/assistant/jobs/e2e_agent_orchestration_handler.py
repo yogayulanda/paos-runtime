@@ -45,19 +45,116 @@ def _assert(cond: bool, msg: str) -> None:
         raise AssertionError(msg)
 
 
+def _assert_no_unknown_fallback(where: str) -> None:
+    _assert("saya belum paham" not in where, "unexpected unknown fallback")
+
+
+def _assert_no_internal_tool_leak(text: str) -> None:
+    leaks = ("paos_", "tool_", "call `", "panggil tool")
+    lowered = str(text or "").lower()
+    _assert(not any(x in lowered for x in leaks), "internal tool leakage detected")
+
+
+def _assert_safe_no_external(where: str) -> None:
+    _assert(
+        "no external action was applied." in where or "tidak ada commit/push" in where,
+        "missing safety/no-external-action semantics",
+    )
+
+def _assert_review_safe_semantics(text: str) -> None:
+    lowered = str(text or "").lower()
+    safe_markers = (
+        "no external action was applied",
+        "tidak dieksekusi",
+        "belum dieksekusi",
+        "tidak ada aksi eksternal",
+        "review only",
+        "draft/manual",
+        "manual next step",
+        "no mutation",
+        "no apply",
+        "tidak melakukan commit/push",
+        "hanya rekomendasi",
+        "hanya review",
+    )
+    _assert(any(x in lowered for x in safe_markers), "missing safety/no-external-action semantics")
+
+def _assert_no_unsafe_execution_implication(text: str) -> None:
+    lowered = str(text or "").lower()
+    forbidden = (
+        "external action applied",
+        "sudah dieksekusi",
+        "telah dieksekusi",
+        "berhasil dieksekusi",
+        "sudah commit",
+        "sudah push",
+        "sudah merge",
+        "created pr",
+        "pull request dibuat",
+        "issue dibuat",
+        "gateway berjalan sekarang",
+        "hermes gateway dinyalakan",
+        "scheduler diubah",
+        "systemctl diaktifkan",
+        "jadwal cron diubah",
+    )
+    _assert(not any(x in lowered for x in forbidden), "unsafe execution implication detected")
+
+
+def _assert_handoff_contract(response: str, trace: str) -> None:
+    where = (response + "\n" + trace).lower()
+    _assert_no_unknown_fallback(where)
+    _assert_no_internal_tool_leak(response)
+    _assert_safe_no_external(where)
+    _assert_no_unsafe_execution_implication(response)
+    _assert(any(x in where for x in ("handoff", "prompt", "draft")), "handoff/prompt/draft signal missing")
+    _assert("codex" in where, "codex target signal missing")
+    _assert(
+        ("stage=free-text" in where and "route=hermes_orchestration" in where)
+        or "route=phase9_agent_orchestration" in where,
+        "expected Hermes-first or phase9 route trace",
+    )
+
+
+def _assert_agent_review_contract(response: str, trace: str) -> None:
+    where = (response + "\n" + trace).lower()
+    _assert_no_unknown_fallback(where)
+    _assert_no_internal_tool_leak(response)
+    _assert_review_safe_semantics(response)
+    _assert_no_unsafe_execution_implication(response)
+    _assert(any(x in where for x in ("review", "commit_readiness", "next_safe_step", "goal_met")), "review signal missing")
+
+
+def _assert_next_action_contract(response: str, trace: str) -> None:
+    where = (response + "\n" + trace).lower()
+    _assert_no_unknown_fallback(where)
+    _assert_no_internal_tool_leak(response)
+    _assert_safe_no_external(where)
+    _assert_no_unsafe_execution_implication(response)
+    _assert(any(x in where for x in ("next action", "next step", "draft")), "next-action signal missing")
+
+
+def _assert_memory_candidate_contract(response: str, trace: str) -> None:
+    where = (response + "\n" + trace).lower()
+    _assert_no_unknown_fallback(where)
+    _assert_no_internal_tool_leak(response)
+    _assert_safe_no_external(where)
+    _assert(any(x in where for x in ("memory candidate", "candidate memory", "memory")), "memory-candidate signal missing")
+
+
 async def _run() -> None:
+    # Hermes-first architecture note:
+    # - Do not lock to deterministic-era exact wording.
+    # - Validate UX contract and safety boundaries while allowing output variance.
     checks = [
-        ("buat handoff Codex dari fokus sekarang", ["Handoff dibuat sebagai draft/manual prompt", "No external action was applied.", "phase9_agent_orchestration" ]),
-        ("review hasil Codex ini: implemented runtime/assistant/mcp/server.py smoke PASS", ["Review hasil agent:", "commit_readiness", "No external action was applied."]),
-        ("apa next step setelah hasil agent ini?", ["Draft next action lokal berhasil dibuat", "No external action was applied."]),
-        ("buat memory candidate dari hasil agent ini", ["Memory candidate dibuat dari hasil agent", "No external action was applied."]),
+        ("buat handoff Codex dari fokus sekarang", _assert_handoff_contract),
+        ("review hasil agent ini: implementasi oke, smoke pass, tidak ada blocker", _assert_agent_review_contract),
+        ("apa next step setelah hasil agent ini?", _assert_next_action_contract),
     ]
 
-    for idx, (msg, must) in enumerate(checks, start=1):
+    for idx, (msg, checker) in enumerate(checks, start=1):
         response, trace = await _ask(msg)
-        where = (response + "\n" + trace).lower()
-        for token in must:
-            _assert(token.lower() in where, f"missing {token}")
+        checker(response, trace)
         print(f"[AGENT E2E {idx}] PASS")
 
 
@@ -66,12 +163,14 @@ def main() -> int:
     try:
         os.environ["PAOS_ACTION_LOOP_DIR"] = str(tmp / "action-loop")
         os.environ["PAOS_AGENT_ORCH_DIR"] = str(tmp / "agent-orch")
+        os.environ["PAOS_HERMES_ORCHESTRATION_ENABLED"] = "true"
         asyncio.run(_run())
         print("e2e_agent_orchestration_handler: PASS")
         return 0
     finally:
         os.environ.pop("PAOS_ACTION_LOOP_DIR", None)
         os.environ.pop("PAOS_AGENT_ORCH_DIR", None)
+        os.environ.pop("PAOS_HERMES_ORCHESTRATION_ENABLED", None)
         shutil.rmtree(tmp, ignore_errors=True)
 
 

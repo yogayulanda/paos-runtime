@@ -30,8 +30,16 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         )
 
     return (
-        "You are Hermes, reasoning/orchestration layer for PAOS Runtime Telegram free-text.\n"
-        "PAOS Runtime is the control-plane, Telegram gateway, and deterministic fallback.\n"
+        "You are Hermes, the main reasoning orchestrator for PAOS Runtime Telegram free-text.\n"
+        "PAOS Runtime is control-plane, Telegram gateway, and deterministic safety/local-state fallback only.\n"
+        "Orchestration contract:\n"
+        "1) First classify user intent semantically.\n"
+        "2) Decide whether PAOS/personal context is relevant.\n"
+        "3) If relevant, use PAOS read evidence/surfaces to ground answer.\n"
+        "4) If not relevant, answer as normal AI assistant.\n"
+        "5) If PAOS context is needed but incomplete, request/derive additional PAOS read context and explain naturally.\n"
+        "6) Never expose MCP/internal tool names or tell user to call tools manually.\n"
+        "7) Never end with 'no evidence attached in this turn' when PAOS read surfaces/evidence exist.\n"
         "Session context:\n"
         "- MCP server `paos` is connected and tools are discoverable in this runtime.\n"
         "- Phase 3 MCP read surfaces are implemented and available.\n"
@@ -42,43 +50,13 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "Respond in Indonesian by default, concise, and operationally grounded.\n"
         "Do not give generic product advice when PAOS state can be inspected.\n"
         "Do not claim tools are unavailable unless MCP/tool call actually fails in this run.\n"
-        "For PAOS status/runtime/dashboard/context questions, prefer:\n"
-        "- paos_runtime_status_get\n"
-        "- paos_dashboard_get\n"
-        "- paos_context_health_get\n"
-        "For daily/focus questions, prefer:\n"
-        "- paos_daily_get\n"
-        "- paos_opportunities_get\n"
-        "For handoff questions, prefer:\n"
-        "- paos_handoff_get\n"
-        "For draft/policy/next-implementation requests, prefer:\n"
-        "- paos_action_policy_get\n"
-        "- paos_action_draft_create\n"
-        "For persistent action-loop requests, prefer:\n"
-        "- paos_daily_action_generate\n"
-        "- paos_action_list\n"
-        "- paos_action_get\n"
-        "- paos_action_event_list\n"
-        "- paos_action_resolve\n"
-        "- paos_action_state_transition\n"
-        "For source/intelligence questions, prefer:\n"
-        "- paos_source_status_get\n"
-        "- paos_source_digest_get\n"
-        "- paos_source_insight_get\n"
-        "- paos_source_candidates_get\n"
-        "- paos_source_recommendation_get\n"
-        "- paos_source_action_draft_create\n"
-        "Primitive read tools remain available:\n"
-        "- paos_health\n"
-        "- paos_context_get\n"
-        "- paos_brief_get\n"
-        "- paos_opportunities_get\n"
-        "- paos_memory_recall\n"
-        "- paos_memory_profile_get\n"
-        "- paos_memory_relevant_get\n"
-        "- paos_memory_candidate_list\n"
-        "- paos_memory_health_get\n"
-        "Treat these as preferred evidence sources for Telegram free-text.\n"
+        "Treat PAOS evidence classes as read-only grounding sources:\n"
+        "- daily/operating context\n"
+        "- runtime/context health\n"
+        "- current action/focus\n"
+        "- source intelligence/opportunities\n"
+        "- memory/profile/relevant personal context\n"
+        "- agent handoff/review context\n"
         "Known roadmap priority:\n"
         "- Completed: provider activation, Telegram Hermes-first orchestration,\n"
         "  prompt/policy tuning, Phase 3 read surfaces, Phase 4 draft boundary,\n"
@@ -87,17 +65,6 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Main UX is conversational (e.g., 'pilih nomor 1', 'accept yang tadi').\n"
         "- Do not force slash commands for primary flow.\n"
         "- Do not recommend command-heavy flows as primary UX.\n"
-        "For broad daily status/focus/next-step questions, prefer composed summary:\n"
-        "- paos_operating_summary_get\n"
-        "For daily plan request, prefer:\n"
-        "- paos_daily_plan_get\n"
-        "For external-agent handoff/review prompts, prefer:\n"
-        "- paos_agent_handoff_create\n"
-        "- paos_agent_handoff_get\n"
-        "- paos_agent_handoff_list\n"
-        "- paos_agent_result_review\n"
-        "- paos_agent_next_action_draft\n"
-        "- paos_agent_memory_candidate_create\n"
         "For 'next apa?' style questions, format answer as:\n"
         "1) Status saat ini\n"
         "2) Next step yang direkomendasikan (satu)\n"
@@ -127,93 +94,68 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
 
 def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
     normalized = str(text or "").strip().lower()
+    words = set(normalized.replace("?", " ").replace("!", " ").replace(",", " ").split())
+    buckets: list[str] = []
+
+    if not normalized:
+        return []
+
+    paosish_signal = any(x in normalized for x in ("paos", "fokus", "action", "aksi", "insight", "opportunity", "runtime", "context", "konteks", "memory", "handoff", "codex", "claude"))
+    daily_signal = any(x in normalized for x in ("hari ini", "today", "menarik", "status", "ringkas", "overview"))
+
+    if paosish_signal or daily_signal:
+        buckets.append("daily_operating")
+
+    if any(x in normalized for x in ("status paos", "runtime", "context sehat", "konteks sehat", "health")):
+        buckets.append("runtime_health")
+    if any(x in normalized for x in ("fokus", "action", "aksi", "pending", "nomor", "accept", "reject", "defer", "tunda", "tolak")):
+        buckets.append("action_focus")
+    if any(x in normalized for x in ("insight", "opportunity", "peluang", "source", "intel", "intelligence")):
+        buckets.append("source_intelligence")
+    if any(x in normalized for x in ("memory", "ingat", "profil", "preferensi", "cara kerja", "personal")):
+        buckets.append("memory_profile")
+    if any(x in normalized for x in ("review", "hasil", "handoff", "codex", "claude", "agent")):
+        buckets.append("agent_review")
+
+    if not buckets and any(x in words for x in ("apa", "bagaimana", "kenapa")) and ("hari" in words or "ini" in words):
+        buckets.append("daily_operating")
+
+    toolsets: dict[str, list[tuple[str, dict]]] = {
+        "daily_operating": [
+            ("paos_operating_summary_get", {"category": "ai"}),
+            ("paos_daily_get", {}),
+        ],
+        "runtime_health": [
+            ("paos_runtime_status_get", {}),
+            ("paos_context_health_get", {}),
+        ],
+        "action_focus": [
+            ("paos_action_list", {"limit": 5}),
+            ("paos_daily_get", {}),
+        ],
+        "source_intelligence": [
+            ("paos_source_status_get", {}),
+            ("paos_source_insight_get", {"category": "ai", "limit": 5}),
+            ("paos_source_recommendation_get", {"category": "ai"}),
+        ],
+        "memory_profile": [
+            ("paos_memory_profile_get", {"limit": 8}),
+            ("paos_memory_relevant_get", {"query": normalized[:120], "limit": 5}),
+            ("paos_memory_health_get", {}),
+        ],
+        "agent_review": [
+            ("paos_agent_handoff_list", {"limit": 5}),
+            ("paos_action_list", {"limit": 5}),
+        ],
+    }
+
     picks: list[tuple[str, dict]] = []
+    for bucket in buckets[:3]:
+        for item in toolsets.get(bucket, []):
+            if item not in picks:
+                picks.append(item)
 
-    def has_any(*phrases: str) -> bool:
-        return any(phrase in normalized for phrase in phrases)
-
-    if has_any(
-        "context sehat",
-        "konteks sehat",
-        "context saya sehat",
-        "context saya sehat gak",
-        "cek context",
-        "cek konteks",
-        "context health",
-    ):
-        picks.append(("paos_context_health_get", {}))
-
-    if has_any("status paos", "kondisi paos", "ringkas kondisi", "paos sekarang", "status sekarang"):
-        picks.append(("paos_operating_summary_get", {"category": "ai"}))
-
-    if has_any("apa status paos hari ini", "operating summary", "daily operating summary"):
-        picks.append(("paos_operating_summary_get", {"category": "ai"}))
-
-    if has_any("daily plan", "buat daily plan", "context memory source"):
-        picks.append(("paos_daily_plan_get", {"category": "ai"}))
-
-    if has_any("dashboard", "dashboard paos"):
-        picks.append(("paos_dashboard_get", {}))
-
-    if has_any("hari ini fokus", "daily", "fokus hari ini"):
-        picks.append(("paos_daily_get", {}))
-
-    if has_any("handoff", "lanjut di codex", "lanjut di claude", "buat prompt codex", "buat prompt claude"):
-        target = "generic"
-        if "codex" in normalized:
-            target = "codex"
-        elif "claude" in normalized:
-            target = "claude"
-        elif "hermes" in normalized:
-            target = "hermes"
-        picks.append(("paos_handoff_get", {"target": target}))
-
-    if has_any("draft", "rencana", "plan", "approval", "promosi memory"):
-        picks.append(("paos_action_policy_get", {}))
-        picks.append(("paos_action_draft_create", {"intent": normalized[:120]}))
-    if has_any("apa yang kamu ingat", "memory relevan", "cara kerja saya", "ingat soal"):
-        picks.append(("paos_memory_profile_get", {"limit": 8}))
-    if has_any("memory sehat", "memory paos saya sehat"):
-        picks.append(("paos_memory_health_get", {}))
-    if has_any("memory baru", "perlu disimpan", "candidate memory"):
-        picks.append(("paos_memory_candidate_list", {"status": "candidate", "limit": 5}))
-    if has_any("buat action hari ini", "action pending", "accept yang tadi", "pilih nomor", "fokus saya sekarang"):
-        picks.append(("paos_action_list", {"limit": 5}))
-    if has_any("buat action hari ini", "daily action"):
-        picks.append(("paos_daily_action_generate", {"category": "runtime", "persist": True}))
-
-    if has_any(
-        "source status",
-        "status source",
-        "intelligence status",
-        "source intelligence sehat",
-        "source intelligence saya sehat",
-    ):
-        picks.append(("paos_source_status_get", {}))
-    if has_any("insight ai yang penting", "insight hari ini", "insight dari github", "insight dari threads"):
-        picks.append(("paos_source_insight_get", {"category": "ai", "limit": 5}))
-    if has_any("sinyal bagus", "candidate source", "candidate terbaru"):
-        picks.append(("paos_source_candidates_get", {"category": "ai", "limit": 5}))
-    if has_any("source paling berguna", "rekomendasi source", "keyword yang perlu saya ubah"):
-        picks.append(("paos_source_recommendation_get", {"category": "ai"}))
-    if has_any("buat action dari insight terbaru", "jadikan insight terbaru sebagai proposed action"):
-        picks.append(("paos_source_action_draft_create", {"category": "ai"}))
-
-    # "next apa" type benefits from status + dashboard grounding.
-    if has_any("next buat paos", "next apa", "selanjutnya apa"):
-        if ("paos_operating_summary_get", {"category": "ai"}) not in picks:
-            picks.append(("paos_operating_summary_get", {"category": "ai"}))
-        if ("paos_dashboard_get", {}) not in picks:
-            picks.append(("paos_dashboard_get", {}))
-
-    if has_any("review hasil codex", "review hasil claude", "hasil agent", "sudah sesuai"):
-        picks.append(("paos_agent_result_review", {"content": normalized[:500]}))
-    if has_any("buat handoff codex", "buat handoff claude", "buat handoff agent", "buat prompt cowork"):
-        picks.append(("paos_agent_handoff_create", {"target_agent": "codex" if "codex" in normalized else ("claude_code" if "claude" in normalized else "claude_cowork" if "cowork" in normalized else "generic")}))
-    if has_any("memory candidate dari hasil", "memory dari hasil agent"):
-        picks.append(("paos_agent_memory_candidate_create", {"content": normalized[:400]}))
-
-    return picks[:3]
+    return picks[:5]
 
 
 def _prefetch_read_evidence(text: str) -> dict | None:
@@ -221,6 +163,8 @@ def _prefetch_read_evidence(text: str) -> dict | None:
     if not requested:
         return None
     payload: dict[str, object] = {"ok": True, "requested_tools": [], "errors": []}
+    payload["evidence_mode"] = "semantic_buckets"
+    payload["query"] = str(text or "")[:300]
     try:
         from assistant.mcp import server as mcp_server  # type: ignore
     except Exception as exc:
