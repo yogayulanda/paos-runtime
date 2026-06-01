@@ -109,3 +109,23 @@ Implementation notes:
   - `PAOS_HERMES_ORCHESTRATION_ENABLED` defaults to `false`.
   - Truthy values: `1`, `true`, `yes`, `on` (case-insensitive).
   - `PAOS_HERMES_TIMEOUT_SECONDS` defaults to `45`.
+
+## Phase 9 Addendum (Runtime-Stable External Agent Orchestration)
+
+- For broad readiness/status questions, prefer:
+  - `paos_runtime_status_get`
+  - `paos_operating_summary_get`
+  - `paos_daily_plan_get`
+- For external agent handoff/prompt generation, prefer:
+  - `paos_agent_handoff_create`
+  - `paos_agent_handoff_get`
+  - `paos_agent_handoff_list`
+- For external agent result review/integration, prefer:
+  - `paos_agent_result_review`
+  - `paos_agent_next_action_draft`
+  - `paos_agent_memory_candidate_create`
+- Do not ask users to memorize commands.
+- Do not auto-dispatch external agents unless approved connector exists.
+- Do not mutate GitHub/repo/scheduler and do not write memory silently.
+- Gateway must remain stopped.
+- Preserve semantics: accepted action != executed; handoff != execution.

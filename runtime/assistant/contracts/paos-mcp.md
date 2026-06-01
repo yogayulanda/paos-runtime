@@ -348,3 +348,22 @@ Invariants:
 
 - Tools return structured `ok=false`, `warnings`, `errors`.
 - Provider fallback behavior remains owned by `MemoryProvider` factory.
+
+## Phase 9 External Agent Tools
+
+Read/draft/local-only tools:
+- `paos_agent_handoff_create(target_agent?, source?, action_id?, category?)`
+- `paos_agent_handoff_get(handoff_id?)`
+- `paos_agent_handoff_list(status?, limit?)`
+- `paos_agent_result_review(content, target_agent?, handoff_id?)`
+- `paos_agent_next_action_draft(content?, handoff_id?)`
+- `paos_agent_memory_candidate_create(content?, handoff_id?, target_agent?)`
+
+Behavior and boundaries:
+- No external dispatch is performed.
+- No GitHub mutation, no scheduler mutation, no gateway start.
+- Handoff output is draft/manual prompt only.
+- Result review is local analysis only.
+- Next action draft is local proposal only.
+- Memory result flow creates candidate only unless explicit approval flow is invoked.
+- Every state-changing or draft-producing surface must include `No external action was applied.`

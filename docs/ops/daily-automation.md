@@ -52,3 +52,15 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 ```
+
+## Phase 9 Validation Standard
+
+Gunakan runner tunggal commit-readiness:
+
+`venv/bin/python runtime/assistant/jobs/validate_commit_readiness.py`
+
+Catatan:
+- Runner memakai interpreter project venv (`venv/bin/python`) untuk host checks.
+- Docker MCP smoke dijalankan lewat container `paos-hermes` dan interpreter `/opt/hermes/.venv/bin/python`.
+- Jika Docker/container tidak tersedia, check container ditandai skip jelas (bukan false pass).
+- Gateway final harus `hermes_gateway_status=stopped_expected` dan `gateway_running=False`.

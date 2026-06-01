@@ -57,3 +57,10 @@ Expected:
 - Do not ask for manual context paste if MCP is available.
 - `paos_memory_write` is safety-sensitive and forbidden in normal Telegram/Hermes flow.
 - Do not mutate scheduler, GitHub, repo, or gateway.
+
+## Phase 9 External-Agent Orchestration
+
+- Gunakan handoff/review tool untuk alur kerja agent eksternal.
+- Handoff bersifat manual prompt draft, bukan dispatch otomatis.
+- Review hasil agent dulu sebelum update action/memory candidate.
+- Semua mutasi eksternal tetap butuh approval eksplisit.

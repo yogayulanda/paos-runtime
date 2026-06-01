@@ -135,6 +135,132 @@ def _is_daily_operating_text(text: str) -> bool:
     )
     return any(p in lowered for p in phrases)
 
+
+def _is_agent_orchestration_text(text: str) -> bool:
+    lowered = _normalize_text(text)
+    markers = (
+        "buat handoff",
+        "buat prompt claude",
+        "buat prompt codex",
+        "hasil codex",
+        "hasil claude",
+        "hasil agent",
+        "next step setelah hasil",
+        "next action dari hasil",
+        "memory candidate dari hasil",
+        "update action ini berdasarkan hasil agent",
+        "cek paos siap commit belum",
+        "validasi runtime paos",
+    )
+    return any(x in lowered for x in markers)
+
+
+async def _handle_agent_orchestration(update, text: str) -> bool:
+    lowered = _normalize_text(text)
+    target_agent = "generic"
+    if "codex" in lowered:
+        target_agent = "codex"
+    elif "cowork" in lowered:
+        target_agent = "claude_cowork"
+    elif "claude" in lowered:
+        target_agent = "claude_code"
+    elif "hermes" in lowered:
+        target_agent = "hermes"
+
+    if "buat handoff" in lowered or "buat prompt" in lowered:
+        _trace_route("agent", text, "phase9_agent:handoff_create")
+        payload = mcp_server.tool_paos_agent_handoff_create(target_agent=target_agent, source="fokus sekarang")
+        sections = payload.get("sections") or {}
+        handoff = sections.get("handoff") or {}
+        prompt = str(sections.get("prompt") or "")
+        body = (
+            "Handoff dibuat sebagai draft/manual prompt.\n"
+            f"- handoff_id: {handoff.get('handoff_id')}\n"
+            f"- target: {handoff.get('target_agent')}\n"
+            f"- status: {handoff.get('status')}\n\n"
+            f"Prompt:\n{prompt}\n\n"
+            "No external action was applied.\n"
+            "Tidak ada commit/push dan tidak ada GitHub mutation."
+        )
+        await update.message.reply_text(body[:3900])
+        return True
+
+    if "next step setelah hasil" in lowered or "next action dari hasil" in lowered or "update action ini berdasarkan hasil agent" in lowered:
+        _trace_route("agent", text, "phase9_agent:next_action_draft")
+        payload = mcp_server.tool_paos_agent_next_action_draft(content=text)
+        draft = (payload.get("sections") or {}).get("draft") or {}
+        await update.message.reply_text(
+            (
+                "Draft next action lokal berhasil dibuat.\n"
+                f"- class: {draft.get('action_class')}\n"
+                f"- summary: {str(draft.get('summary') or '-')[:200]}\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return True
+
+    if "memory candidate dari hasil" in lowered:
+        _trace_route("agent", text, "phase9_agent:memory_candidate")
+        payload = mcp_server.tool_paos_agent_memory_candidate_create(content=text, target_agent=target_agent)
+        candidate = (payload.get("sections") or {}).get("candidate") or {}
+        await update.message.reply_text(
+            (
+                "Memory candidate dibuat dari hasil agent (belum durable write).\n"
+                f"- candidate_id: {candidate.get('candidate_id', '-') }\n"
+                "Balas: 'simpan memory ini' atau 'tolak memory ini' jika ingin tindak lanjut.\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return True
+
+    if "review hasil" in lowered or "hasil codex" in lowered or "hasil claude" in lowered or "hasil agent" in lowered or "sudah sesuai" in lowered:
+        _trace_route("agent", text, "phase9_agent:result_review")
+        content = text
+        if ":" in text:
+            content = text.split(":", 1)[1].strip() or text
+        payload = mcp_server.tool_paos_agent_result_review(content=content, target_agent=target_agent)
+        review = (payload.get("sections") or {}).get("review") or {}
+        blockers = review.get("blockers") or []
+        safety = review.get("safety_violations") or []
+        files = review.get("files_changed") or []
+        lines = [
+            "Review hasil agent:",
+            f"- goal_met: {review.get('goal_met')}",
+            f"- commit_readiness: {review.get('commit_readiness')}",
+            f"- files_detected: {len(files)}",
+            f"- validation_failed_signal: {review.get('validation_failed_signal')}",
+            f"- missing_tests: {review.get('missing_tests')}",
+        ]
+        if blockers:
+            lines.append("- blocker: " + str(blockers[0]))
+        if safety:
+            lines.append("- safety_violation: " + str(safety[0]))
+        lines.extend(
+            [
+                f"- next_safe_step: {review.get('next_safe_step')}",
+                "No external action was applied.",
+                "Tidak ada commit/push dan tidak ada GitHub mutation.",
+            ]
+        )
+        await update.message.reply_text("\n".join(lines)[:3900])
+        return True
+
+    if "cek paos siap commit belum" in lowered or "validasi runtime paos" in lowered:
+        _trace_route("agent", text, "phase9_agent:commit_readiness_status")
+        runtime = mcp_server.tool_paos_runtime_status_get()
+        summary = mcp_server.tool_paos_operating_summary_get(category="ai")
+        await update.message.reply_text(
+            (
+                "Ringkas validasi runtime PAOS:\n"
+                f"- runtime: {runtime.get('summary')}\n"
+                f"- operating: {summary.get('summary')}\n"
+                "Boundary: accepted action != executed; handoff != execution.\n"
+                "No external action was applied."
+            )[:3900]
+        )
+        return True
+    return False
+
 async def _handle_daily_operating(update, text: str) -> bool:
     lowered = _normalize_text(text)
     try:
@@ -499,6 +625,10 @@ async def handle_free_text_query(update, context):
             return
     if await _handle_source_intelligence(update, text):
         return
+    if _is_agent_orchestration_text(text):
+        _trace_route("free-text", text, "phase9_agent_orchestration")
+        if await _handle_agent_orchestration(update, text):
+            return
     if _is_daily_operating_text(text):
         _trace_route("free-text", text, "phase8_daily_operating")
         if await _handle_daily_operating(update, text):

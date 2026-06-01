@@ -83,7 +83,7 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Completed: provider activation, Telegram Hermes-first orchestration,\n"
         "  prompt/policy tuning, Phase 3 read surfaces, Phase 4 draft boundary,\n"
         "  and Phase 5 persistent action loop.\n"
-        "- Current status: Phase 8 stabilization + daily operating loop hardening active.\n"
+        "- Current status: Phase 9 runtime-stable external agent orchestration active.\n"
         "- Main UX is conversational (e.g., 'pilih nomor 1', 'accept yang tadi').\n"
         "- Do not force slash commands for primary flow.\n"
         "- Do not recommend command-heavy flows as primary UX.\n"
@@ -91,6 +91,13 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- paos_operating_summary_get\n"
         "For daily plan request, prefer:\n"
         "- paos_daily_plan_get\n"
+        "For external-agent handoff/review prompts, prefer:\n"
+        "- paos_agent_handoff_create\n"
+        "- paos_agent_handoff_get\n"
+        "- paos_agent_handoff_list\n"
+        "- paos_agent_result_review\n"
+        "- paos_agent_next_action_draft\n"
+        "- paos_agent_memory_candidate_create\n"
         "For 'next apa?' style questions, format answer as:\n"
         "1) Status saat ini\n"
         "2) Next step yang direkomendasikan (satu)\n"
@@ -104,10 +111,12 @@ def _build_prompt_with_evidence(text: str, evidence_payload: dict | None) -> str
         "- Do not apply controlled writes.\n"
         "- Do not mutate scheduler, GitHub, or repository state.\n"
         "- Do not enable/start Hermes gateway.\n"
+        "- Gateway must remain stopped.\n"
         "- Mutation-like requests must be converted into draft output with clear no-apply notice.\n"
         "- Approval-required requests must include approval payload only, no execution path.\n"
         "- Blocked requests must refuse safely and must not include executable commands.\n"
         "- Action state transition is local persistence only (accepted != executed).\n"
+        "- Agent handoff is planning context only (handoff != execution).\n"
         "- All state-changing outputs must include: 'No external action was applied.'\n"
         "- If execution is needed, propose steps instead of executing.\n\n"
         f"{evidence_block}"
@@ -149,7 +158,7 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
     if has_any("hari ini fokus", "daily", "fokus hari ini"):
         picks.append(("paos_daily_get", {}))
 
-    if has_any("handoff", "lanjut di codex", "lanjut di claude"):
+    if has_any("handoff", "lanjut di codex", "lanjut di claude", "buat prompt codex", "buat prompt claude"):
         target = "generic"
         if "codex" in normalized:
             target = "codex"
@@ -197,6 +206,13 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
         if ("paos_dashboard_get", {}) not in picks:
             picks.append(("paos_dashboard_get", {}))
 
+    if has_any("review hasil codex", "review hasil claude", "hasil agent", "sudah sesuai"):
+        picks.append(("paos_agent_result_review", {"content": normalized[:500]}))
+    if has_any("buat handoff codex", "buat handoff claude", "buat handoff agent", "buat prompt cowork"):
+        picks.append(("paos_agent_handoff_create", {"target_agent": "codex" if "codex" in normalized else ("claude_code" if "claude" in normalized else "claude_cowork" if "cowork" in normalized else "generic")}))
+    if has_any("memory candidate dari hasil", "memory dari hasil agent"):
+        picks.append(("paos_agent_memory_candidate_create", {"content": normalized[:400]}))
+
     return picks[:3]
 
 
@@ -233,6 +249,12 @@ def _prefetch_read_evidence(text: str) -> dict | None:
         "paos_memory_profile_get": getattr(mcp_server, "tool_paos_memory_profile_get", None),
         "paos_memory_health_get": getattr(mcp_server, "tool_paos_memory_health_get", None),
         "paos_memory_candidate_list": getattr(mcp_server, "tool_paos_memory_candidate_list", None),
+        "paos_agent_handoff_create": getattr(mcp_server, "tool_paos_agent_handoff_create", None),
+        "paos_agent_handoff_get": getattr(mcp_server, "tool_paos_agent_handoff_get", None),
+        "paos_agent_handoff_list": getattr(mcp_server, "tool_paos_agent_handoff_list", None),
+        "paos_agent_result_review": getattr(mcp_server, "tool_paos_agent_result_review", None),
+        "paos_agent_next_action_draft": getattr(mcp_server, "tool_paos_agent_next_action_draft", None),
+        "paos_agent_memory_candidate_create": getattr(mcp_server, "tool_paos_agent_memory_candidate_create", None),
     }
 
     compact_results = []

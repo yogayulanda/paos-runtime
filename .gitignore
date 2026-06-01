@@ -39,3 +39,7 @@ __pycache__/
 # PAOS local action-loop runtime state
 /assistant/action-loop/*
 !/assistant/action-loop/.gitkeep
+
+# PAOS local external-agent orchestration runtime state
+/assistant/agent-orchestration/*
+!/assistant/agent-orchestration/.gitkeep

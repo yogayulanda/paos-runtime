@@ -18,3 +18,9 @@ If you cannot access PAOS MCP, say so clearly and ask for the smallest context n
 3. If needed: `paos_handoff_get`, `paos_daily_get`, `paos_source_status_get`
 4. Never call `paos_memory_write` in normal Telegram/Hermes flow
 5. Never execute external apply/write actions
+
+## Phase 9 Quick Rule
+
+- Buat handoff via `paos_agent_handoff_create`.
+- Review hasil via `paos_agent_result_review` sebelum tindak lanjut.
+- Memory dari hasil agent harus lewat candidate (`paos_agent_memory_candidate_create`) dulu.

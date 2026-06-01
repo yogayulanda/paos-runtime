@@ -67,3 +67,10 @@ Context fallback (if MCP is not wired in Hermes yet):
 - `paos_memory_write` must not be used in normal free-text orchestration.
 - `paos_action_state_transition` changes local state only; no external execution.
 - Preserve boundary text for state changes: `No external action was applied.`
+
+## Phase 9 Orchestration Rules
+
+- Untuk handoff external agent gunakan `paos_agent_handoff_create` (draft/manual only).
+- Untuk review hasil agent gunakan `paos_agent_result_review`.
+- Untuk next action/memory gunakan draft/candidate tools, bukan apply otomatis.
+- Hermes gateway harus tetap stopped.

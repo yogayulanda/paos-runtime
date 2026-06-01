@@ -33,6 +33,15 @@ from assistant.source_intelligence import (
     get_source_recommendation,
     get_source_status,
 )
+from assistant.agent_orchestration import (
+    create_handoff as agent_handoff_create,
+    create_memory_candidate_from_result as agent_memory_candidate_create,
+    draft_next_action_from_result as agent_next_action_draft,
+    get_handoff as agent_handoff_get,
+    handoff_prompt as agent_handoff_prompt,
+    list_handoffs as agent_handoff_list,
+    review_result as agent_result_review,
+)
 from assistant.action_loop import (
     accept_action,
     create_daily_action,
@@ -949,6 +958,103 @@ def tool_paos_runtime_status_get() -> dict[str, Any]:
         )
 
 
+def tool_paos_agent_handoff_create(
+    target_agent: str | None = None,
+    source: str | None = None,
+    action_id: str | None = None,
+    category: str | None = None,
+) -> dict[str, Any]:
+    payload = agent_handoff_prompt(target_agent=target_agent, source=source, action_id=action_id, category=category)
+    return {
+        "ok": bool(payload.get("ok")),
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.agent-handoff.create",
+        "status": "ready",
+        "summary": str(payload.get("summary") or "Handoff dibuat sebagai draft/manual prompt."),
+        "sections": {
+            "handoff": payload.get("handoff"),
+            "prompt": payload.get("prompt"),
+            "notice": "No external action was applied.",
+        },
+        "warnings": [],
+        "errors": [],
+    }
+
+
+def tool_paos_agent_handoff_get(handoff_id: str | None = None) -> dict[str, Any]:
+    payload = agent_handoff_get(handoff_id=handoff_id)
+    return {
+        "ok": bool(payload.get("ok")),
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.agent-handoff.get",
+        "status": "ready" if payload.get("ok") else "degraded",
+        "summary": "Handoff detail loaded." if payload.get("ok") else "handoff not found",
+        "sections": {"handoff": payload.get("handoff"), "notice": "No external action was applied."},
+        "warnings": [],
+        "errors": payload.get("errors") or [],
+    }
+
+
+def tool_paos_agent_handoff_list(status: str | None = None, limit: int = 10) -> dict[str, Any]:
+    payload = agent_handoff_list(status=status, limit=limit)
+    return {
+        "ok": bool(payload.get("ok")),
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.agent-handoff.list",
+        "status": "ready",
+        "summary": f"Listed {len(payload.get('items') or [])} handoff(s).",
+        "sections": {"handoffs": payload.get("items") or [], "notice": "No external action was applied."},
+        "warnings": [],
+        "errors": [],
+    }
+
+
+def tool_paos_agent_result_review(content: str, target_agent: str | None = None, handoff_id: str | None = None) -> dict[str, Any]:
+    payload = agent_result_review(content=content, target_agent=target_agent, handoff_id=handoff_id)
+    return {
+        "ok": bool(payload.get("ok")),
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.agent-result.review",
+        "status": "ready",
+        "summary": str(payload.get("summary") or "Agent result direview secara lokal."),
+        "sections": {"review": payload.get("review"), "notice": "No external action was applied."},
+        "warnings": [],
+        "errors": payload.get("errors") or [],
+    }
+
+
+def tool_paos_agent_next_action_draft(content: str | None = None, handoff_id: str | None = None) -> dict[str, Any]:
+    payload = agent_next_action_draft(content=content, handoff_id=handoff_id)
+    return {
+        "ok": bool(payload.get("ok")),
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.agent-result.next-action-draft",
+        "status": "ready",
+        "summary": str(payload.get("summary") or "Draft next action dibuat (local-only)."),
+        "sections": {"draft": payload.get("draft"), "notice": "No external action was applied."},
+        "warnings": [],
+        "errors": payload.get("errors") or [],
+    }
+
+
+def tool_paos_agent_memory_candidate_create(
+    content: str | None = None,
+    handoff_id: str | None = None,
+    target_agent: str | None = None,
+) -> dict[str, Any]:
+    payload = agent_memory_candidate_create(content=content, handoff_id=handoff_id, target_agent=target_agent)
+    return {
+        "ok": bool(payload.get("ok")),
+        "generated_at": _now_iso(),
+        "source": "paos.mcp.agent-result.memory-candidate",
+        "status": "ready" if payload.get("ok") else "degraded",
+        "summary": str(payload.get("summary") or "Memory candidate dibuat dari hasil agent."),
+        "sections": {"candidate": payload.get("candidate"), "notice": "No external action was applied."},
+        "warnings": [],
+        "errors": payload.get("errors") or [],
+    }
+
+
 def tool_paos_source_status_get() -> dict[str, Any]:
     try:
         return get_source_status(category="ai").payload
@@ -1587,6 +1693,44 @@ def create_mcp_server():
             return tool_paos_runtime_status_get()
         except Exception as exc:
             return _error_payload(errors=[f"unexpected error: {exc}"])
+
+    @server.tool(name="paos_agent_handoff_create")
+    def paos_agent_handoff_create(
+        target_agent: str | None = None,
+        source: str | None = None,
+        action_id: str | None = None,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        return tool_paos_agent_handoff_create(
+            target_agent=target_agent,
+            source=source,
+            action_id=action_id,
+            category=category,
+        )
+
+    @server.tool(name="paos_agent_handoff_get")
+    def paos_agent_handoff_get(handoff_id: str | None = None) -> dict[str, Any]:
+        return tool_paos_agent_handoff_get(handoff_id=handoff_id)
+
+    @server.tool(name="paos_agent_handoff_list")
+    def paos_agent_handoff_list(status: str | None = None, limit: int = 10) -> dict[str, Any]:
+        return tool_paos_agent_handoff_list(status=status, limit=limit)
+
+    @server.tool(name="paos_agent_result_review")
+    def paos_agent_result_review(content: str, target_agent: str | None = None, handoff_id: str | None = None) -> dict[str, Any]:
+        return tool_paos_agent_result_review(content=content, target_agent=target_agent, handoff_id=handoff_id)
+
+    @server.tool(name="paos_agent_next_action_draft")
+    def paos_agent_next_action_draft(content: str | None = None, handoff_id: str | None = None) -> dict[str, Any]:
+        return tool_paos_agent_next_action_draft(content=content, handoff_id=handoff_id)
+
+    @server.tool(name="paos_agent_memory_candidate_create")
+    def paos_agent_memory_candidate_create(
+        content: str | None = None,
+        handoff_id: str | None = None,
+        target_agent: str | None = None,
+    ) -> dict[str, Any]:
+        return tool_paos_agent_memory_candidate_create(content=content, handoff_id=handoff_id, target_agent=target_agent)
 
     @server.tool(name="paos_operating_summary_get")
     def paos_operating_summary_get(category: str | None = None) -> dict[str, Any]:

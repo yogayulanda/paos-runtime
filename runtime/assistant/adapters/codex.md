@@ -64,3 +64,14 @@ Note: exact Codex UI wiring may vary by version; command pattern above is the st
 - Do not request manual context paste when MCP can supply it.
 - Do not invoke `paos_memory_write` in normal Telegram/Hermes workflows.
 - Do not mutate scheduler, GitHub, repo, or gateway.
+
+## Phase 9 External-Agent Orchestration
+
+- Prefer handoff/review surfaces:
+  - `paos_agent_handoff_create`
+  - `paos_agent_result_review`
+  - `paos_agent_next_action_draft`
+  - `paos_agent_memory_candidate_create`
+- Handoff is draft/manual prompt only (handoff != execution).
+- Accepted action is direction only (accepted != executed).
+- No commit/push/PR/issue unless explicitly requested.
