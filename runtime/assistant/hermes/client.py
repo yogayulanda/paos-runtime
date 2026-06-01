@@ -146,7 +146,8 @@ def _detect_prefetch_tools(text: str) -> list[tuple[str, dict]]:
         ],
         "memory_profile": [
             ("paos_memory_profile_get", {"limit": 8}),
-            ("paos_memory_relevant_get", {"query": normalized[:120], "limit": 5}),
+            ("paos_memory_relevant_get", {"query": normalized[:120], "limit": 4}),
+            ("paos_working_context_get", {"category": "ai"}),
             ("paos_memory_health_get", {}),
         ],
         "agent_review": [
@@ -197,6 +198,7 @@ def _prefetch_read_evidence(text: str) -> dict | None:
         "paos_action_list": getattr(mcp_server, "tool_paos_action_list", None),
         "paos_daily_action_generate": getattr(mcp_server, "tool_paos_daily_action_generate", None),
         "paos_memory_profile_get": getattr(mcp_server, "tool_paos_memory_profile_get", None),
+        "paos_working_context_get": getattr(mcp_server, "tool_paos_working_context_get", None),
         "paos_memory_health_get": getattr(mcp_server, "tool_paos_memory_health_get", None),
         "paos_memory_candidate_list": getattr(mcp_server, "tool_paos_memory_candidate_list", None),
         "paos_agent_handoff_create": getattr(mcp_server, "tool_paos_agent_handoff_create", None),

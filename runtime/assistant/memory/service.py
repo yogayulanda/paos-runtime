@@ -62,6 +62,11 @@ class MemoryHealthReport:
     warnings: list[str]
 
 
+_STOPWORDS = {
+    "yang", "dan", "untuk", "dengan", "adalah", "the", "a", "di", "ke", "dari", "ini", "itu", "saya", "aku",
+}
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -75,6 +80,62 @@ def _topic_key(memory_type: str, content: str) -> str:
 def _compact(text: str, max_chars: int = 240) -> str:
     clean = re.sub(r"\s+", " ", str(text or "").strip())
     return clean[:max_chars]
+
+
+def _terms(text: str) -> list[str]:
+    normalized = re.sub(r"[^a-z0-9 ]+", " ", str(text or "").lower())
+    return [tok for tok in normalized.split() if tok and tok not in _STOPWORDS]
+
+
+def _recency_score(iso_value: str) -> float:
+    try:
+        dt = datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+    except Exception:
+        return 0.0
+    age_hours = max(0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 3600.0)
+    if age_hours <= 24:
+        return 0.25
+    if age_hours <= 24 * 7:
+        return 0.15
+    if age_hours <= 24 * 30:
+        return 0.08
+    return 0.03
+
+
+def _type_priority(memory_type: str) -> float:
+    ranking = {
+        "decision": 0.35,
+        "task_state": 0.28,
+        "project_fact": 0.24,
+        "working_style": 0.20,
+        "preference": 0.18,
+        "note": 0.10,
+    }
+    return ranking.get(normalize_memory_type(memory_type), 0.05)
+
+
+def _query_relevance_score(query: str, payload: dict[str, Any]) -> tuple[float, str]:
+    query_terms = set(_terms(query))
+    content = str(payload.get("content") or "")
+    content_terms = set(_terms(content))
+    overlap = query_terms.intersection(content_terms) if query_terms else set()
+
+    overlap_score = 0.0
+    if query_terms:
+        overlap_score = min(0.60, (len(overlap) / max(1, len(query_terms))) * 0.60)
+
+    base = _type_priority(str(payload.get("type") or "note"))
+    confidence = float(payload.get("confidence") or 0.0) * 0.10
+    recency = _recency_score(str(payload.get("updated_at") or payload.get("created_at") or ""))
+    total = round(base + confidence + recency + overlap_score, 4)
+
+    if not query_terms:
+        reason = "recent active memory"
+    elif overlap:
+        reason = "matched query terms: " + ", ".join(sorted(list(overlap))[:3])
+    else:
+        reason = "semantically related memory type"
+    return total, reason
 
 
 def _normalize_confidence(value: float | int | str | None) -> float:
@@ -384,15 +445,91 @@ def memory_relevant_get(query: str = "", category: str | None = None, scope: str
         if key in seen_topics:
             continue
         seen_topics.add(key)
+        score, reason = _query_relevance_score(query=query, payload=payload)
+        payload["relevance_score"] = score
+        payload["reason"] = reason
+        payload["source"] = {
+            "source_type": payload.get("source_type") or "unknown",
+            "source_ref": _compact(str(payload.get("source_ref") or ""), 120),
+        }
+        payload["content"] = _compact(str(payload.get("content") or ""), 220)
         rows.append(payload)
+
+    rows.sort(key=lambda x: float(x.get("relevance_score") or 0.0), reverse=True)
+    sliced = rows[: max(1, int(limit))]
+    stable = [x for x in sliced if str(x.get("type") or "") in {"preference", "working_style", "project_fact", "decision"}]
+    temporary = [x for x in sliced if str(x.get("type") or "") in {"task_state", "note"}]
     return {
         "ok": True,
         "scope": scoped,
         "query": query,
-        "items": rows[: max(1, int(limit))],
+        "items": sliced,
+        "stable_items": stable,
+        "temporary_items": temporary,
+        "summary": f"{len(sliced)} relevant memories (stable={len(stable)}, temporary={len(temporary)}).",
         "warnings": [],
         "errors": [],
     }
+
+
+def working_context_get(category: str | None = None) -> dict[str, Any]:
+    config = load_assistant_config()
+    scoped = category if category is not None else config.default_category
+
+    from assistant.action_loop import list_actions  # type: ignore
+    from assistant.agent_orchestration import list_handoffs  # type: ignore
+
+    accepted = list_actions(state="accepted", limit=1, remember_list=False)
+    proposed_or_deferred = [
+        x for x in list_actions(limit=20, remember_list=False)
+        if x.state in {"proposed", "deferred"}
+    ][:3]
+
+    decision_memory = memory_relevant_get(query="keputusan terbaru prioritas", category=scoped, limit=3)
+    decision_items = [
+        x for x in (decision_memory.get("items") or []) if str(x.get("type") or "") == "decision"
+    ][:2]
+
+    handoffs = list_handoffs(limit=3).get("items") or []
+    latest_handoff = handoffs[0] if handoffs else None
+
+    context = {
+        "session_scope": scoped,
+        "current_focus": {
+            "action_id": accepted[0].action_id if accepted else None,
+            "title": accepted[0].title if accepted else None,
+            "state": accepted[0].state if accepted else None,
+        },
+        "pending_focus": [
+            {
+                "action_id": x.action_id,
+                "title": x.title,
+                "state": x.state,
+                "updated_at": x.updated_at,
+            }
+            for x in proposed_or_deferred
+        ],
+        "recent_decisions": [
+            {
+                "content": _compact(str(x.get("content") or ""), 180),
+                "updated_at": x.get("updated_at"),
+                "reason": x.get("reason"),
+            }
+            for x in decision_items
+        ],
+        "active_handoff": {
+            "handoff_id": (latest_handoff or {}).get("handoff_id"),
+            "target_agent": (latest_handoff or {}).get("target_agent"),
+            "status": (latest_handoff or {}).get("status"),
+            "source_action_id": (latest_handoff or {}).get("source_action_id"),
+            "updated_at": (latest_handoff or {}).get("updated_at"),
+        },
+        "generated_at": _now_iso(),
+        "expires_in_hours": 24,
+        "summary": "Temporary working context for current focus, pending actions, recent decisions, and active handoff.",
+        "notice": "No external action was applied.",
+    }
+    return {"ok": True, "scope": scoped, "context": context, "warnings": [], "errors": []}
 
 
 def memory_health_get() -> dict[str, Any]:

@@ -16,6 +16,7 @@ from .service import (
     memory_health_get,
     memory_profile_get,
     memory_relevant_get,
+    working_context_get,
     transition_candidate,
 )
 
@@ -34,6 +35,7 @@ __all__ = [
     "direct_approved_write",
     "memory_profile_get",
     "memory_relevant_get",
+    "working_context_get",
     "memory_health_get",
     "load_memory_provider",
 ]

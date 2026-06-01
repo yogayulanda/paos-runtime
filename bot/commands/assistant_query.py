@@ -30,6 +30,7 @@ from assistant.memory import (  # type: ignore
     memory_health_get,
     memory_profile_get,
     memory_relevant_get,
+    working_context_get,
     transition_candidate,
 )
 
@@ -449,6 +450,26 @@ async def _handle_memory_intent(update, text: str) -> bool:
     if not lowered:
         return False
 
+    if any(x in lowered for x in ("kayaknya perlu diingat", "mungkin perlu diingat", "ini mungkin penting", "catat sebagai candidate")):
+        content = _extract_memory_content(text)
+        result = create_candidate(
+            content,
+            memory_type=_extract_memory_type(text),
+            source_type="inferred_from_dialogue",
+            source_ref="telegram/free-text",
+            evidence_summary=f"Inferred candidate from user utterance: {_normalize_text(text)[:160]}",
+            confidence=0.7,
+            status="candidate",
+        )
+        if result.get("ok"):
+            await update.message.reply_text(
+                "Memory candidate dibuat (belum ditulis sebagai memory aktif). Balas: 'simpan nomor 1' atau 'tolak memory itu'.\n"
+                "No external action was applied."
+            )
+        else:
+            await update.message.reply_text("Gagal membuat memory candidate. No memory was written yet.")
+        return True
+
     if any(x in lowered for x in ("ingat ini", "simpan ini", "update memory")):
         content = _extract_memory_content(text)
         if not content:
@@ -486,6 +507,24 @@ async def _handle_memory_intent(update, text: str) -> bool:
         lines = ["Memory relevan:"]
         for idx, item in enumerate(items[:5], start=1):
             lines.append(f"{idx}. [{item.get('type')}] {str(item.get('content') or '')[:180]}")
+        await update.message.reply_text("\n".join(lines)[:3900])
+        return True
+
+    if any(x in lowered for x in ("context kerja saya sekarang", "working context saya", "konteks aktif saya", "temporary context saya")):
+        payload = working_context_get(category="ai")
+        ctx = payload.get("context") or {}
+        focus = (ctx.get("current_focus") or {}).get("title") or "Belum ada focus aktif"
+        pending = ctx.get("pending_focus") or []
+        decisions = ctx.get("recent_decisions") or []
+        handoff = ctx.get("active_handoff") or {}
+        lines = ["Working context saat ini:"]
+        lines.append(f"- Focus: {focus}")
+        lines.append(f"- Pending: {len(pending)}")
+        if decisions:
+            lines.append(f"- Keputusan terbaru: {str(decisions[0].get('content') or '-')[:140]}")
+        if handoff.get("handoff_id"):
+            lines.append(f"- Active handoff: {handoff.get('handoff_id')} ({handoff.get('target_agent')})")
+        lines.append("No external action was applied.")
         await update.message.reply_text("\n".join(lines)[:3900])
         return True
 
@@ -745,6 +784,10 @@ async def handle_free_text_query(update, context):
     if await _handle_memory_intent(update, text):
         _trace_route("free-text", text, "phase7_memory_intent")
         return
+    if _is_agent_orchestration_text(text):
+        _trace_route("free-text", text, "phase9_agent_orchestration")
+        if await _handle_agent_orchestration(update, text):
+            return
     hermes_attempted = False
     if hermes_orchestration_enabled():
         hermes_attempted = True

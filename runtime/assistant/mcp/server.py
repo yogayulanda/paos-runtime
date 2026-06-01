@@ -22,6 +22,7 @@ from assistant.memory import (
     memory_health_get,
     memory_profile_get,
     memory_relevant_get,
+    working_context_get,
     transition_candidate,
 )
 from assistant.actions import create_action_draft, get_action_policy
@@ -366,6 +367,17 @@ def tool_paos_memory_relevant_get(
         return memory_relevant_get(query=query, category=category, scope=scope, limit=limit)
     except Exception as exc:
         return _error_payload(category=category, errors=[str(exc)], items=[])
+
+
+def tool_paos_working_context_get(category: str | None = None) -> dict[str, Any]:
+    try:
+        resolved_category, category_source = _resolve_category(category)
+        payload = working_context_get(category=resolved_category)
+        payload["category"] = resolved_category
+        payload["category_source"] = category_source
+        return payload
+    except Exception as exc:
+        return _error_payload(category=category, errors=[str(exc)])
 
 
 def tool_paos_memory_candidate_create(
@@ -1578,6 +1590,10 @@ def create_mcp_server():
         limit: int = 6,
     ) -> dict[str, Any]:
         return tool_paos_memory_relevant_get(query=query, category=category, scope=scope, limit=limit)
+
+    @server.tool(name="paos_working_context_get")
+    def paos_working_context_get(category: str | None = None) -> dict[str, Any]:
+        return tool_paos_working_context_get(category=category)
 
     @server.tool(name="paos_memory_candidate_create")
     def paos_memory_candidate_create(
